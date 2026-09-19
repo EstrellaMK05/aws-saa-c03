@@ -1,0 +1,20 @@
+# Credenciales y configuraciones locales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+.aws/
+
+# Estado local de Obsidian y del sistema
+.obsidian/
+.DS_Store
+Thumbs.db
+
+# Archivos temporales
+~$*
+*.tmp
+*.bak
