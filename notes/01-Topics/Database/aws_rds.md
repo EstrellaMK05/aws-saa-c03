@@ -276,6 +276,40 @@ This is one of the most important RDS distinctions for SAA-C03.
 
 ---
 
+## 🔄 Synchronous vs Asynchronous Replication
+
+| Feature | RDS Multi-AZ | RDS Read Replica |
+|---|---|---|
+| Main Purpose | High Availability | Read Scaling |
+| Replication | **Synchronous** | **Asynchronous** |
+| Failover | ✅ Automatic | ❌ Not the primary HA mechanism |
+| Read Traffic | ❌ Standby is not normally used for reads | ✅ Yes |
+| Different AZ | ✅ | ✅ Possible |
+| Cross-Region | ❌ Multi-AZ is regional HA | ✅ Possible |
+
+> [!danger] Exam Pattern
+> **High Availability + Synchronous Replication**
+>
+> → ✅ **RDS Multi-AZ**
+>
+> **Read Scaling + Asynchronous Replication**
+>
+> → ✅ **RDS Read Replica**
+
+---
+### 🧠 Memory Trick
+
+```text
+Multi-AZ
+→ SYNCHRONOUS
+→ STANDBY
+→ HIGH AVAILABILITY
+
+Read Replica
+→ ASYNCHRONOUS
+→ READS
+→ SCALABILITY
+
 ## 🧠 Easy Mental Model
 
 ```text
@@ -434,6 +468,7 @@ Storage
 
 ---
 
+
 # 🔑 IAM Database Authentication
 
 For supported engines, applications can authenticate using **IAM database authentication** instead of relying only on traditional database passwords.
@@ -454,6 +489,19 @@ Useful for reducing long-lived database credentials.
 >
 > or, depending on the scenario:
 > → Secrets Manager
+
+## 🔐 IAM Database Authentication
+
+IAM DB Authentication allows applications to connect to supported RDS databases using **temporary authentication tokens instead of database passwords**.
+
+```text
+EC2 Application
+      ↓
+IAM Role / AWS Credentials
+      ↓
+Generate DB Authentication Token
+      ↓
+RDS Database
 
 ---
 
@@ -640,6 +688,35 @@ Monitor metrics such as:
 - IOPS
 - Latency
 
+## 📊 RDS Enhanced Monitoring
+
+Enhanced Monitoring provides **OS-level metrics** for an RDS DB instance.
+
+It provides detailed information about how processes and threads use system resources.
+
+Examples:
+
+- CPU utilization
+- Memory utilization
+- Process-level CPU usage
+- Process-level memory usage
+
+> [!tip] Exam Pattern
+> **RDS + CPU/Memory usage by individual processes or threads**
+>
+> → ✅ **Enhanced Monitoring**
+
+### Don't Confuse
+
+```text
+RDS general metrics
+→ CloudWatch
+
+RDS OS / process-level metrics
+→ Enhanced Monitoring
+
+Database load / SQL / waits
+→ Database Insights / Performance Insights
 ---
 
 ## Enhanced Monitoring

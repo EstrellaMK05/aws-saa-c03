@@ -343,6 +343,25 @@ An LSI:
 
 ---
 
+## 🧩 Flexible Schema
+
+DynamoDB is a **NoSQL key-value/document database** with a flexible schema.
+
+Items in the same table can have different attributes.
+
+```text
+Item A
+├── UserId
+├── Name
+└── Email
+
+Item B
+├── UserId
+├── Name
+├── Country
+└── Preferences
+---
+
 # 🔍 Query
 
 `Query` efficiently retrieves items based on a Partition Key.

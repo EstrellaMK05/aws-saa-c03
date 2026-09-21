@@ -179,6 +179,18 @@ Provides **WORM** protection:
 
 → Encrypt data **before uploading** to S3
 
+## 🔐 Client-Side vs Server-Side Encryption
+
+### Server-Side Encryption
+
+```text
+Plaintext
+   ↓
+   AWS
+   ↓
+Encryption
+   ↓
+S3
 ---
 
 ## 🛡️ Access Control
