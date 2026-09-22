@@ -1,1033 +1,119 @@
-# ⚡ AWS Lambda
-
-> [!summary] Mental Model
-> **AWS Lambda = Run code without managing servers**
->
-> Event → Lambda → Action
->
-> ```text
-> Event
->   ↓
-> Lambda
->   ↓
-> Execute Code
->   ↓
-> AWS Service / Database / API
-> ```
-
+---
+aliases: [AWS Lambda, Lambda]
+tags: [aws/saa, compute]
 ---
 
-# 📌 Core
+# AWS Lambda
 
-AWS Lambda is a **serverless compute service**.
+## Mental Model
 
-You provide the code and AWS manages the underlying infrastructure.
+**An event triggers a function. AWS supplies execution environments; you design permissions, state, retries and downstream access.**
 
-Key characteristics:
+An accepted event is not proof of successful processing. Automatic scaling is not unlimited concurrency.
 
-- No servers to provision/manage
-- Event-driven
-- Automatically scales
-- Pay for requests and execution
-- Short-lived/stateless compute
-- Maximum execution time: **15 minutes**
+## Core
 
-> [!tip] 🎯 Exam Clue
-> **Run code in response to events without managing servers**
-> → AWS Lambda
+### Execution, resources and state
 
-> [!warning] ⚠️ Exam Trap
-> **Execution longer than 15 minutes**
-> → Lambda is probably NOT the right choice.
+- A standard function invocation can run for **up to 900 seconds (15 minutes)**. A single uninterrupted two-hour process belongs on suitable container/VM/batch compute.
+- Increasing configured memory also increases allocated CPU. More memory can lower duration enough to improve total cost; measure instead of assuming the smallest setting is cheapest.
+- Keep authoritative state in services such as S3, DynamoDB or a database. Execution environments may be reused but reuse is not guaranteed.
+- `/tmp` is temporary local storage: useful for scratch data or a reusable cache, not the only durable copy. EFS provides shared persistent files with appropriate VPC and permission configuration.
+- Package code as a ZIP or compatible container image. Lambda layers share dependencies for ZIP functions; image-based functions include dependencies in the image. Packaging as a container does not remove invocation limits.
 
----
+This note focuses on standard Lambda function scenarios. Durable workflows can coordinate multiple steps/invocations over a longer period; do not confuse total workflow duration with one continuously running invocation. Newer Lambda execution products have their own constraints.
 
-# ⚙️ How Lambda Works
+### Invocation and failure handling
 
-```text
-Event Source
-     ↓
-   Lambda
-     ↓
-Execution Environment
-     ↓
-Your Code
-     ↓
-Downstream Service
-```
-
-Common event sources:
-
-- API Gateway
-- S3
-- EventBridge
-- SQS
-- SNS
-- DynamoDB Streams
-- Kinesis
-
-Common downstream services:
-
-- S3
-- DynamoDB
-- RDS
-- SQS
-- SNS
-- Step Functions
-- APIs
-
----
-
-# 🔐 Execution Role
-
-A Lambda function uses an **IAM Execution Role** to access AWS services.
-
-Example:
-
-```text
-Lambda
-   │
-   │ Execution Role
-   ↓
-S3 GetObject
-DynamoDB PutItem
-CloudWatch Logs
-```
-
-The role defines **what Lambda is allowed to do**.
-
-> [!tip] 🎯 Exam Clue
-> **Lambda needs permission to access S3/DynamoDB/etc.**
-> → Lambda Execution Role
-
----
-
-# 🔄 Invocation Types
-
-One of the most important Lambda topics.
-
-## 🔵 Synchronous Invocation
-
-The caller **waits for Lambda to finish** and receives the response.
-
-```text
-Client
-   ↓
-Invoke Lambda
-   ↓
-Lambda executes
-   ↓
-Response
-   ↓
-Client
-```
-
-Common example:
-
-```text
-Client
-   ↓
-API Gateway
-   ↓
-Lambda
-   ↓
-Response
-```
-
-Examples include:
-
-- API Gateway
-- Application Load Balancer
-- Cognito
-- Lambda@Edge
-
-> [!tip] 🎯 Exam Clue
-> **Caller needs immediate response**
-> → Synchronous Invocation
-
----
-
-## 🟣 Asynchronous Invocation
-
-The caller sends the event and **doesn't wait for the function to finish**.
-
-Lambda queues the event internally.
-
-```text
-Event
-   ↓
-Lambda Internal Queue
-   ↓
-Lambda
-   ↓
-Process
-```
-
-The caller receives:
-
-```text
-202 Accepted
-```
-
-This means:
-
-> Event accepted/queued
-
-NOT:
-
-> Function completed successfully
-
-Common examples:
-
-- S3 events
-- EventBridge
-- CloudWatch Logs
-
-> [!tip] 🎯 Exam Clue
-> **Background event processing**
-> → Asynchronous Invocation
-
----
-
-# 🧠 Sync vs Async
-
-| | Synchronous | Asynchronous |
+| Model | Examples | What happens on failure? |
 |---|---|---|
-| Caller waits | ✅ | ❌ |
-| Immediate result | ✅ | ❌ |
-| Internal Lambda queue | ❌ | ✅ |
-| Example | API Gateway | S3 / EventBridge |
-| Typical use | Request/response | Background events |
+| Synchronous | API Gateway, ALB, direct request/response | Caller receives the error; caller/integrating service decides whether to retry |
+| Asynchronous invocation | S3 notifications, SNS, EventBridge targets | Lambda queues the event and manages asynchronous processing/retries |
+| Event source mapping | SQS, Kinesis, DynamoDB Streams | Lambda reads/polls records; retry, batching and checkpoint behavior depend on the source |
 
-Mental model:
+For asynchronous **function errors**, Lambda retries twice by default. Throttling/system errors have different retry behavior, governed by the event's age and configuration. Configure an on-failure destination or appropriate DLQ rather than silently losing exhausted/expired events. Destinations provide invocation records; an async DLQ captures failed events. This mechanism is not the SQS redrive policy.
 
-```text
-SYNC
-→ "Give me the result"
+Duplicates are possible. Use idempotent processing, especially for payments, writes and notifications. A timeout does not prove a downstream write failed.
 
-ASYNC
-→ "Do this when you can"
-```
+### SQS and streams
 
----
+- For SQS, successfully processed messages are deleted; failed messages become available again after the visibility timeout.
+- Configure **partial batch responses** and implement the response correctly to retry failed SQS items without unnecessarily retrying successful items.
+- Configure the **source queue's DLQ/redrive policy** for repeatedly failing SQS messages. Do not substitute the Lambda asynchronous-invocation DLQ.
+- Set visibility timeout appropriately; AWS recommends at least six times the function timeout, plus any batching window.
+- Limit event-source concurrency where supported and coordinate it with function concurrency to protect downstream systems.
+- For Kinesis/DynamoDB Streams, processing follows shard/checkpoint semantics. A bad record can delay progress; use supported retry limits, partial failure handling or batch splitting as appropriate. Ordering is per shard, not global across all shards.
 
-# 📥 Event Source Mapping
+### Concurrency and startup
 
-For queues and streams, Lambda can use an **Event Source Mapping**.
+For ordinary single-request execution environments:
 
-Lambda polls the source and invokes your function.
+`approximate concurrency = requests per second × average duration in seconds`
 
-Common sources:
+Example: 200 requests/second × 0.5 seconds ≈ 100 concurrent executions. This is a sizing estimate; service quotas, scaling rates and burst behavior also apply.
 
-- Amazon SQS
-- DynamoDB Streams
-- Kinesis Data Streams
-- Amazon MSK
-- Amazon MQ
-- Apache Kafka
-
-```text
-SQS / Stream
-     ↓
-Event Source Mapping
-     ↓
-   Lambda
-```
-
-It can collect records into **batches** before invoking the function.
-
-> [!tip] 🎯 Exam Clue
-> **Lambda processing SQS / Kinesis / DynamoDB Streams**
-> → Event Source Mapping
-
----
-
-# 🚨 Important: Push vs Poll
-
-Don't assume every service invokes Lambda the same way.
-
-### Push-style event
-
-```text
-S3
- ↓
-Lambda
-```
-
-### Poll-based
-
-```text
-SQS
- ↓
-Lambda Event Source Mapping
- ↓
-Lambda
-```
-
-> [!warning] ⚠️ Exam Trap
-> With services such as **SQS, Kinesis and DynamoDB Streams**, Lambda uses an Event Source Mapping to read/poll records.
-
----
-
-# 📈 Concurrency
-
-**Concurrency = number of Lambda executions running at the same time.**
-
-Example:
-
-```text
-1 request
-→ 1 concurrent execution
-
-100 simultaneous requests
-→ potentially many concurrent executions
-```
-
-Lambda automatically scales execution environments as demand increases.
-
----
-
-# 🔒 Reserved Concurrency
-
-Reserved Concurrency reserves part of the concurrency capacity for a specific function.
-
-It also acts as the function's **maximum concurrency**.
-
-```text
-Account Concurrency
-        │
-        ├── Lambda A
-        │      ↓
-        │ Reserved: 100
-        │
-        └── Other Lambdas
-```
-
-Useful for:
-
-- Guaranteeing concurrency for an important function
-- Preventing one function from consuming excessive concurrency
-- Limiting downstream load
-
-> [!tip] 🎯 Exam Clue
-> **Guarantee capacity AND limit maximum concurrency**
-> → Reserved Concurrency
-
----
-
-# 🚀 Provisioned Concurrency
-
-Provisioned Concurrency keeps execution environments **pre-initialized**.
-
-```text
-Request
-   ↓
-Already initialized Lambda
-   ↓
-Execute immediately
-```
-
-Used to reduce:
-
-# **Cold Start latency**
-
-Useful for:
-
-- Latency-sensitive applications
-- APIs requiring predictable response times
-
-> [!tip] 🎯 Exam Clue
-> **Reduce cold starts**
->
-> **Predictable low latency**
->
-> → Provisioned Concurrency
-
----
-
-# ⚔️ Reserved vs Provisioned Concurrency
-
-| | Reserved | Provisioned |
+| Control | Main purpose | Key limitation |
 |---|---|---|
-| Reserve concurrency capacity | ✅ | — |
-| Maximum concurrency limit | ✅ | ❌ |
-| Pre-initialize environments | ❌ | ✅ |
-| Reduce cold starts | ❌ | ✅ |
-| Main purpose | Capacity/control | Low latency |
+| Reserved concurrency | Allocate concurrency to a function and cap its maximum | Does not pre-initialize environments or remove cold starts; zero throttles the function |
+| Provisioned concurrency | Prepare initialized environments for a version/alias | Additional cost; excess traffic can spill over to on-demand execution if capacity permits |
+| SnapStart | Reduce initialization using snapshots for supported runtimes/configurations | Compatibility restrictions; cannot combine with provisioned concurrency on the same function version |
 
-> [!warning] ⚠️ Exam Trap
-> **Reserved → Capacity**
->
-> **Provisioned → Performance / Cold Starts**
+Provisioned concurrency consumes account concurrency capacity. It is not itself a maximum concurrency setting, and callers must invoke the configured version/alias to use it.
 
----
+### Permissions and networking
 
-# 🥶 Cold Starts
+- **Execution role:** what function code may do, such as reading S3 or writing logs.
+- **Invocation permissions / resource policy:** who or what may invoke the function. Granting the execution role S3 access does not authorize S3 to invoke Lambda.
+- To reach private VPC resources, configure suitable subnets and security groups.
+- A VPC-connected function does **not** gain public IPv4 internet access merely by selecting a public subnet. A common IPv4 design uses private subnets and a public NAT gateway; supported AWS services can use VPC endpoints.
+- For connection-heavy RDS workloads, consider **RDS Proxy** to pool and manage connections; it does not make the database infinitely scalable.
+- Store rotating secrets in Secrets Manager; encrypted environment variables alone do not provide rotation.
 
-When Lambda needs a new execution environment, initialization can add latency.
+### Deployment and observability
 
-```text
-Request
-   ↓
-Create Environment
-   ↓
-Initialize Runtime
-   ↓
-Load Code
-   ↓
-Execute
-```
+Published **versions** are immutable code/configuration snapshots. An **alias** provides a stable name and can shift a proportion of traffic between two versions for gradual rollout.
 
-This is a **cold start**.
+CloudWatch tracks invocations, errors, duration, throttles and concurrency; logs need appropriate permissions. Distributed tracing helps identify latency across dependencies. Monitor event age or queue backlog as well as function errors: a quiet function can have work waiting upstream.
 
-Subsequent invocations may reuse an existing environment:
+## Comparisons
 
-```text
-Request
-   ↓
-Existing Environment
-   ↓
-Execute
-```
-
-→ **Warm invocation**
-
-> [!tip] 🎯 Exam Clue
-> **Lambda latency caused by initialization**
-> → Cold Start
->
-> Need predictable low latency?
-> → Provisioned Concurrency
-
----
-
-# 📦 Lambda Layers
-
-A **Layer** contains reusable code or dependencies.
-
-Examples:
-
-- Libraries
-- SDKs
-- Shared code
-- Custom runtimes
-
-```text
-Lambda Function
-      +
-Lambda Layer
-      ↓
-Execution
-```
-
-Benefits:
-
-- Smaller deployment package
-- Reuse dependencies
-- Separate application code from libraries
-
-> [!tip] 🎯 Exam Clue
-> **Share libraries between Lambda functions**
->
-> **Keep deployment package modular/smaller**
->
-> → Lambda Layer
-
----
-
-# 📦 Deployment Packages
-
-Lambda code can be deployed using:
-
-### ZIP
-
-```text
-Code + Dependencies
-       ↓
-      ZIP
-       ↓
-     Lambda
-```
-
-### Container Image
-
-```text
-Container Image
-      ↓
-Amazon ECR
-      ↓
-Lambda
-```
-
-> [!tip] 🎯 Exam Clue
-> Lambda can run code packaged as:
->
-> **ZIP or Container Image**
-
----
-
-# 🏷️ Versions
-
-A Lambda **Version** is an immutable snapshot of the function.
-
-Example:
-
-```text
-$LATEST
-
-Publish
-   ↓
-Version 1
-
-Change code
-
-Publish
-   ↓
-Version 2
-```
-
-Published versions cannot be modified.
-
----
-
-# 🔖 Aliases
-
-An **Alias** is a pointer to a Lambda version.
-
-```text
-PROD
- ↓
-Version 5
-```
-
-Example:
-
-```text
-DEV  → Version 8
-TEST → Version 7
-PROD → Version 5
-```
-
-This lets applications reference:
-
-```text
-PROD
-```
-
-instead of a specific version number.
-
----
-
-## 🚦 Traffic Shifting
-
-Aliases can help route traffic between Lambda versions.
-
-Example:
-
-```text
-PROD
- │
- ├── 90% → Version 5
- │
- └── 10% → Version 6
-```
-
-Useful for gradual deployments.
-
-> [!tip] 🎯 Exam Clue
-> **Stable name pointing to Lambda version**
-> → Alias
->
-> **Immutable snapshot**
-> → Version
-
----
-
-# 🌐 Lambda + VPC
-
-By default, a Lambda function is **not connected to your private VPC resources**.
-
-To access resources such as:
-
-- Private RDS
-- Private EC2
-- Internal services
-
-configure:
-
-- VPC
-- Subnets
-- Security Groups
-
-```text
-Lambda
-   ↓
-VPC Configuration
-   ↓
-Private Subnet
-   ↓
-RDS
-```
-
-Lambda creates/manages network interfaces to access resources in your VPC.
-
-> [!tip] 🎯 Exam Clue
-> **Lambda needs access to private RDS**
-> → Configure Lambda for VPC access
-
----
-
-# ⚠️ Lambda VPC + Internet Access
-
-A very important networking trap:
-
-Putting Lambda in a **public subnet does NOT automatically give it Internet access**.
-
-For outbound IPv4 Internet access from a VPC-connected Lambda, a common architecture is:
-
-```text
-Lambda
-   ↓
-Private Subnet
-   ↓
-NAT Gateway
-   ↓
-Internet Gateway
-   ↓
-Internet
-```
-
-For supported AWS services, consider:
-
-```text
-Lambda
-   ↓
-VPC Endpoint
-   ↓
-AWS Service
-```
-
-> [!warning] ⚠️ Exam Trap
-> **Lambda attached to VPC ≠ automatically has Internet access**
-
----
-
-# 🔗 Lambda Function URL
-
-Lambda can expose a dedicated **HTTPS endpoint** without API Gateway.
-
-```text
-Internet
-   ↓
-Lambda Function URL
-   ↓
-Lambda
-```
-
-Authentication options include:
-
-- `AWS_IAM`
-- `NONE`
-
-Useful for simple HTTP endpoints.
-
-> [!tip] 🎯 Exam Clue
-> **Simple HTTPS endpoint directly for one Lambda**
-> → Lambda Function URL
-
----
-
-# ⚔️ Function URL vs API Gateway
-
-## Lambda Function URL
-
-→ Simple direct HTTPS endpoint  
-→ Less infrastructure  
-→ Basic HTTP use cases
-
-## API Gateway
-
-→ Full API management
-
-Features can include:
-
-- Routing
-- Authorization
-- Throttling
-- API stages
-- Request/response transformations
-- API management features
-
-> [!tip] 🧠 Mental Model
-> **Simple Lambda HTTP endpoint**
-> → Function URL
->
-> **Full-featured API**
-> → API Gateway
-
----
-
-# 🌍 Lambda@Edge
-
-Lambda@Edge runs Lambda functions in association with **CloudFront** events.
-
-```text
-User
-  ↓
-CloudFront Edge
-  ↓
-Lambda@Edge
-  ↓
-Origin
-```
-
-Can modify requests/responses at points such as:
-
-- Viewer Request
-- Origin Request
-- Origin Response
-- Viewer Response
-
-Useful for:
-
-- Request/response manipulation
-- Authentication logic
-- URL rewrites
-- Header manipulation
-
-> [!tip] 🎯 Exam Clue
-> **Execute code close to CloudFront users**
-> → Lambda@Edge
-
----
-
-# 💾 Lambda + EFS
-
-Lambda can mount **Amazon EFS**.
-
-```text
-Lambda
-   ↓
-EFS
-   ↓
-Shared Files
-```
-
-Useful when Lambda functions need:
-
-- Shared persistent files
-- Large shared dependencies/data
-- File-system access
-
-> [!warning]
-> Lambda local execution storage is not the same as durable shared storage.
->
-> For shared persistent file storage:
-> → EFS
-
----
-
-# 🔐 Environment Variables
-
-Environment variables store configuration as key-value pairs.
-
-Examples:
-
-```text
-DB_HOST
-ENVIRONMENT
-API_ENDPOINT
-```
-
-Environment variables are encrypted at rest.
-
-For sensitive secrets such as database passwords, prefer a dedicated secret-management service when the scenario requires secure secret storage/rotation.
-
-```text
-Lambda
-   ↓
-Secrets Manager
-   ↓
-Secret
-```
-
-> [!tip] 🎯 Exam Clue
-> **Configuration**
-> → Environment Variables
->
-> **Password/API secret + rotation**
-> → Secrets Manager
-
----
-
-# 📊 Monitoring
-
-Lambda integrates with **Amazon CloudWatch**.
-
-## CloudWatch Metrics
-
-Examples:
-
-- Invocations
-- Errors
-- Duration
-- Throttles
-- Concurrent executions
-
-## CloudWatch Logs
-
-```text
-Lambda
-   ↓
-CloudWatch Logs
-```
-
-Used for function logs and troubleshooting.
-
----
-
-# 🔎 AWS X-Ray
-
-AWS X-Ray provides **distributed tracing**.
-
-Useful for tracing a request across:
-
-```text
-API Gateway
-     ↓
-Lambda
-     ↓
-DynamoDB
-```
-
-Helps identify:
-
-- Latency
-- Bottlenecks
-- Service dependencies
-- Errors across distributed applications
-
-> [!tip] 🎯 Exam Clue
-> **Trace requests across distributed/serverless application**
-> → AWS X-Ray
-
----
-
-# ⚔️ Lambda vs EC2
-
-## Lambda
-
-→ Serverless  
-→ Event-driven  
-→ Automatic scaling  
-→ Short-lived execution  
-→ Maximum 15 minutes  
-→ Pay for usage
-
-## EC2
-
-→ Full server control  
-→ Long-running workloads  
-→ OS access  
-→ Persistent compute
-
-> [!tip] 🎯 Exam Clue
-> **Short event-driven task**
-> → Lambda
->
-> **Long-running process / OS control**
-> → EC2
-
----
-
-# ⚔️ Lambda vs ECS/Fargate
-
-## Lambda
-
-Best for:
-
-- Event-driven functions
-- Short executions
-- Rapid automatic scaling
-
-## Fargate
-
-Best for:
-
-- Containers
-- Longer-running workloads
-- More runtime/container control
-
-```text
-Short Event-Driven Code
-→ Lambda
-
-Longer Container Workload
-→ Fargate
-```
-
----
-
-# 🔄 Lambda + SQS
-
-Very common architecture:
-
-```text
-Producer
-   ↓
-  SQS
-   ↓
-Lambda Event Source Mapping
-   ↓
-Lambda
-```
-
-Benefits:
-
-- Decoupling
-- Buffering
-- Handling traffic spikes
-- Asynchronous processing
-
-> [!tip] 🎯 Exam Clue
-> **Traffic spikes overwhelm Lambda/downstream system**
-> → Put SQS between producer and consumer
-
----
-
-# 🔄 Lambda + API Gateway
-
-Classic serverless API:
-
-```text
-Client
-   ↓
-API Gateway
-   ↓
-Lambda
-   ↓
-DynamoDB
-```
-
-Useful for:
-
-- REST APIs
-- HTTP APIs
-- Serverless backends
-
----
-
-# 🔄 Lambda + EventBridge
-
-Event-driven architecture:
-
-```text
-Application
-    ↓
-EventBridge
-    ↓
-Lambda
-```
-
-Useful for reacting to events without tightly coupling services.
-
----
-
-# ⚠️ Quick Exam Traps
-
-| If you see... | Think... |
+| Requirement | Choice |
 |---|---|
-| Serverless event-driven compute | **Lambda** |
-| Execution > 15 minutes | **Not Lambda** |
-| Caller waits for result | **Synchronous** |
-| Background event | **Asynchronous** |
-| SQS → Lambda | **Event Source Mapping** |
-| DynamoDB Streams → Lambda | **Event Source Mapping** |
-| Kinesis → Lambda | **Event Source Mapping** |
-| Limit/guarantee concurrency | **Reserved Concurrency** |
-| Reduce cold starts | **Provisioned Concurrency** |
-| Shared dependencies | **Lambda Layers** |
-| Immutable function snapshot | **Version** |
-| Friendly pointer to version | **Alias** |
-| Private RDS access | **Lambda + VPC** |
-| VPC Lambda needs Internet | **NAT Gateway** |
-| Private AWS service access | **VPC Endpoint** |
-| Simple direct HTTPS endpoint | **Function URL** |
-| Full API management | **API Gateway** |
-| Code at CloudFront edge | **Lambda@Edge** |
-| Shared persistent filesystem | **EFS** |
-| Distributed tracing | **X-Ray** |
-| Buffer traffic spikes | **SQS** |
+| Simple direct HTTP endpoint for a function | Function URL, with appropriate authentication/permissions |
+| API routing, authorization and management features | [[aws_apigateway|API Gateway]]; features differ by API type |
+| CloudFront request/response customization | Lambda@Edge or CloudFront Functions, according to capabilities; see [[aws_cloudfront|CloudFront]] |
+| Long-running container process | [[aws_containers|ECS/Fargate]] or compatible EC2 compute |
+| Scheduled resource-intensive jobs with dependencies | [[aws_batch|Batch]] |
+| Buffer asynchronous bursts | SQS plus controlled Lambda consumption |
 
----
+## Exam Traps
 
-# 🚨 Most Important Exam Distinctions
+- **SQS processing is asynchronous at the application level, but uses an event source mapping**, not Lambda's asynchronous invocation queue.
+- **Reserved concurrency does not solve cold starts.** Provisioned concurrency does not automatically cap the function.
+- **A successful HTTP acceptance response is not a successful business operation.** Track processing completion.
+- **SQS FIFO does not remove the need for idempotent side effects.** Failures and retries still happen.
+- **Public subnet ≠ public IP for Lambda.** Check actual egress and private-service paths.
+- **Automatic scaling can exhaust database connections.** Control concurrency and use appropriate connection management.
+- **A large burst alone does not make Lambda the right runtime.** Check compatibility, latency, duration and quotas.
 
-```text
-Synchronous
-→ Caller WAITS
+## Scenario Check
 
-Asynchronous
-→ Event QUEUED
-```
+**One message in an SQS batch fails; the others already updated records successfully.** Use partial batch responses plus idempotent processing. Otherwise, retrying the batch can repeat successful work. Send persistently failing messages through the queue's redrive policy for investigation.
 
-```text
-Reserved Concurrency
-→ CAPACITY / LIMIT
+## 30-Second Review
 
-Provisioned Concurrency
-→ COLD START / LATENCY
-```
+Lambda executes event-driven functions; standard invocations last at most 15 minutes. Sync, async and polling integrations retry differently. Make side effects idempotent and handle partial SQS failures. Reserved concurrency allocates and caps capacity; provisioned concurrency prepares environments. VPC attachment needs explicit networking. Roles govern function actions; invocation policies govern callers. Keep durable state externally and protect downstream capacity.
 
-```text
-Version
-→ Immutable SNAPSHOT
+## Sources
 
-Alias
-→ POINTER to version
-```
+- [Lambda quotas](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html)
+- [Retry behavior](https://docs.aws.amazon.com/lambda/latest/dg/invocation-retries.html)
+- [Asynchronous errors and retries](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-error-handling.html)
+- [SQS integration](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html)
+- [SQS mapping configuration](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-configure.html)
+- [Concurrency](https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html)
+- [SnapStart](https://docs.aws.amazon.com/lambda/latest/dg/snapstart.html)
+- [VPC internet access](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc-internet.html)
+- [Lambda permissions](https://docs.aws.amazon.com/lambda/latest/dg/lambda-permissions.html)
 
-```text
-Lambda
-→ Short event-driven code
-
-Fargate / EC2
-→ Longer-running workloads
-```
-
----
-
-> [!abstract] 🧠 AWS Lambda in 30 Seconds
-> **Purpose:** Serverless event-driven compute
->
-> **Maximum runtime:** 15 minutes
->
-> **Sync:** Caller waits
->
-> **Async:** Event queued
->
-> **Queues/Streams:** Event Source Mapping
->
-> **Reserved Concurrency:** Reserve + limit capacity
->
-> **Provisioned Concurrency:** Reduce cold starts
->
-> **Layer:** Shared dependencies
->
-> **Version:** Immutable snapshot
->
-> **Alias:** Pointer to version
->
-> **Private resources:** VPC configuration
->
-> **Simple HTTPS:** Function URL
->
-> **Full API:** API Gateway
->
-> **Edge execution:** Lambda@Edge
->
-> **Shared files:** EFS
->
-> **Monitoring:** CloudWatch
->
-> **Tracing:** X-Ray
+Reviewed: 2026-09-21. Back to [[compute_overview|Compute]].

@@ -1,611 +1,94 @@
-# 🌱 AWS Elastic Beanstalk
-
-> [!summary] Mental Model
-> **Elastic Beanstalk = Deploy my application without manually managing the infrastructure**
->
-> ```text
-> Application Code
->       ↓
-> Elastic Beanstalk
->       ↓
-> AWS Infrastructure
-> ├── EC2
-> ├── Auto Scaling
-> ├── Load Balancer
-> └── CloudWatch
-> ```
-
+---
+aliases: [AWS Elastic Beanstalk, Elastic Beanstalk]
+tags: [aws/saa, compute]
 ---
 
-# 🎯 Core Purpose
+# AWS Elastic Beanstalk
 
-AWS Elastic Beanstalk is a managed application deployment service.
+## Mental Model
 
-You provide the application code and Elastic Beanstalk handles much of the infrastructure provisioning, deployment, monitoring, and scaling.
+**Provide an application; Beanstalk provisions and operates its environment using AWS resources.**
 
-```text
-Developer
-   ↓
-Application Code
-   ↓
-Elastic Beanstalk
-   ↓
-Deploy + Scale + Monitor
-```
+It reduces deployment and infrastructure work. You still configure the environment, own application behavior and pay for underlying resources.
 
-> [!tip] Exam Pattern
-> **Deploy a traditional web application**
-> +
-> **Minimal infrastructure management**
-> +
-> **Still need access/control over underlying AWS resources**
->
-> → ✅ Elastic Beanstalk
+## Core
 
----
+### Application, version and environment
 
-# 🏗️ Core Concepts
+- **Application:** logical collection of versions, environments and configuration.
+- **Application version:** a particular deployable code bundle.
+- **Environment:** resources running a deployed application version; create separate environments for development, test and production.
 
-```text
-Application
-   ↓
-Application Versions
-   ↓
-Environments
-```
+This note's deployment and worker comparisons focus on **Beanstalk Standard**, the familiar EC2-based model. **Beanstalk Cluster** runs containers using EKS and has a different configuration surface. Do not apply Standard-specific instance profiles or deployment details universally to Cluster environments.
 
-### Application
+### Standard environment tiers
 
-Logical container for:
+| Tier / configuration | Purpose | Important detail |
+|---|---|---|
+| Web server, load-balanced | Serve HTTP requests with load balancing and scalable compute | Configure multiple AZs and adequate capacity for HA |
+| Web server, single-instance | Simple low-cost environment | Does not provide redundant web compute |
+| Worker | Process background work from SQS | Worker daemon delivers messages to the local application; design for retries and duplicates |
 
-- Environments
-- Application versions
-- Configurations
+An environment being managed does not prove it is highly available. [[aws_auto_scaling|Auto Scaling]] and [[aws_elb|load balancing]] still need suitable settings.
 
-### Application Version
+### Data and permissions
 
-A specific version of deployable application code.
+- Keep uploads and important state outside local instance storage, because instances can be replaced.
+- For production, consider an **external RDS database with an independent lifecycle**. Coupling a database to an environment complicates termination and blue/green changes; check retention/snapshot settings.
+- The **service role** authorizes Beanstalk's service operations. The **EC2 instance profile** supplies application-instance permissions in Standard environments.
+- Manage configuration reproducibly through supported configuration files and deployment tools. Avoid relying on manual changes to one replaceable instance.
 
-### Environment
+## Comparisons
 
-AWS resources running one application version.
+### Deployment policies for Standard environments
 
-Examples:
+| Policy | How it deploys | Capacity / rollback trade-off |
+|---|---|---|
+| All at once | Updates all instances together | Brief outage is expected; fastest/simple option when downtime is acceptable |
+| Rolling | Updates batches of existing instances | Reduced serving capacity during each batch; old/new versions coexist |
+| Rolling with additional batch | Adds a batch before rotating existing instances | Maintains intended serving capacity with temporary extra resources |
+| Immutable | Builds a fresh instance fleet and validates it | Extra capacity; failed deployment can discard new instances without updating the original fleet |
+| Traffic splitting | Sends a configured share of traffic to the new fleet for evaluation | Canary-style validation; requires supported load-balancer/environment configuration |
+| Blue/green pattern | Deploys a separate environment, tests, then swaps environment CNAMEs | Separate environment and lifecycle; DNS propagation and database compatibility still matter |
 
-```text
-Application: MyApp
+“No downtime” assumes sufficient capacity, passing health checks and compatible application/data changes. A deployment policy cannot guarantee this for an incompatible schema migration.
 
-├── dev environment
-├── test environment
-└── prod environment
-```
+### Nearby services
 
----
-
-# 🌐 Web Server Environment
-
-Used for applications that serve HTTP requests.
-
-Classic architecture:
-
-```text
-             Internet
-                ↓
-        Elastic Load Balancer
-          ↙            ↘
-       EC2              EC2
-          \            /
-           Auto Scaling
-```
-
-A load-balanced scalable environment commonly uses:
-
-- Elastic Load Balancing
-- EC2
-- Auto Scaling
-- CloudWatch
-
-> [!tip] Exam Pattern
-> **Highly available scalable web application**
->
-> → Elastic Beanstalk load-balanced environment
-
----
-
-# 👷 Worker Environment
-
-Used for background/asynchronous processing.
-
-```text
-Web Application
-      ↓
-     SQS
-      ↓
-Elastic Beanstalk
-Worker Environment
-      ↓
-Background Processing
-```
-
-Elastic Beanstalk worker environments use an **SQS queue** and worker instances process messages from it.
-
-> [!tip] Exam Pattern
-> **Background tasks**
-> +
-> **Asynchronous processing**
->
-> → Elastic Beanstalk Worker Environment
-
----
-
-# 🆚 Web vs Worker
-
-| Requirement | Environment |
+| Requirement | Starting point |
 |---|---|
-| HTTP web application | Web Server |
-| User-facing requests | Web Server |
-| Background processing | Worker |
-| SQS-based jobs | Worker |
+| Managed deployment of a conventional web application | Beanstalk |
+| Define general infrastructure as code | CloudFormation |
+| Short event-driven function | [[aws_lambda|Lambda]] |
+| Direct container orchestration control | [[aws_containers|ECS or EKS]] |
 
-```text
-HTTP Request
-→ Web Environment
+Beanstalk and CloudFormation can coexist. Beanstalk is application-environment focused; CloudFormation models broader infrastructure. Beanstalk also supports containerized applications, so “containers always means ECS” is too absolute.
 
-SQS Message
-→ Worker Environment
-```
+## Exam Traps
 
----
+- **Managed application deployment is not the same as Lambda-style function execution.** Runtime and lifecycle matter.
+- **A sudden traffic spike is not enough to pick Lambda over Beanstalk.** Check workload compatibility, warm capacity, scaling delay and concurrency constraints.
+- **Rolling can reduce available capacity.** Choose an additional batch when preserving capacity during that rollout is required.
+- **Immutable and blue/green are different.** Fresh instances within a deployment are not the same as a separate environment and CNAME swap.
+- **Swapping URLs does not migrate database data or undo writes.** Plan shared/external data and backward-compatible changes.
+- **Do not terminate the old environment before traffic migration and validation are complete.** DNS/client caching can delay the transition.
+- **The EC2 instance profile is not the Beanstalk service role.** Check which actor needs permission.
 
-# 📈 Auto Scaling
+## Scenario Check
 
-Elastic Beanstalk can manage EC2 Auto Scaling for Standard environments.
+**A production app needs a fully separate environment that can be tested before receiving traffic, with a quick route back to the old environment.** Use a blue/green pattern and controlled CNAME swap. An immutable update builds a new fleet but does not by itself create the same independent environment boundary. Neither approach automatically rolls back database changes.
 
-```text
-Traffic ↑
-   ↓
-Auto Scaling
-   ↓
-More EC2
+## 30-Second Review
 
-Traffic ↓
-   ↓
-Auto Scaling
-   ↓
-Fewer EC2
-```
+Beanstalk manages application environments. Standard web tiers serve HTTP; worker tiers process SQS jobs. Rolling deploys in batches; an additional batch preserves capacity; immutable creates a fresh fleet; traffic splitting tests a traffic share; blue/green uses separate environments. Keep persistent data independent, distinguish service and instance roles, and validate capacity and schema compatibility. Managed does not automatically mean highly available.
 
-> [!important]
-> Elastic Beanstalk does not replace Auto Scaling.
->
-> It can **configure and manage Auto Scaling resources for you**.
+## Sources
 
----
+- [Beanstalk concepts](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/concepts.html)
+- [Deployment policies](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.deploy-existing-version.html)
+- [Blue/green deployments](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features.CNAMESwap.html)
+- [Worker environments](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/using-features-managing-env-tiers.html)
+- [RDS and Beanstalk](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.RDS.html)
+- [Beanstalk Cluster architecture](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/beanstalk-cluster-concepts.html)
 
-# 🚀 Deployment Policies
-
-## All at Once
-
-Deploy to all instances simultaneously.
-
-```text
-v1 v1 v1
-   ↓
-v2 v2 v2
-```
-
-Fastest deployment.
-
-❌ Causes temporary downtime.
-
----
-
-## Rolling
-
-Deploy in batches.
-
-```text
-v1 v1 v1 v1
-
-↓ batch 1
-
-v2 v2 v1 v1
-
-↓ batch 2
-
-v2 v2 v2 v2
-```
-
-Capacity is reduced during deployment.
-
----
-
-## Rolling with Additional Batch
-
-Launch an additional batch first.
-
-```text
-Existing Capacity
-      +
-New Batch
-      ↓
-Deploy gradually
-```
-
-Maintains full capacity during deployment.
-
----
-
-## Immutable
-
-Launch a fresh set of instances with the new version.
-
-```text
-Old Instances
-   v1 v1
-      +
-New Instances
-   v2 v2
-
-Validation
-   ↓
-Replace old
-```
-
-Safer rollback.
-
-Uses additional resources during deployment.
-
----
-
-## Traffic Splitting
-
-Temporarily send a percentage of traffic to the new version.
-
-```text
-Users
-  ↓
-  ├── 90% → v1
-  └── 10% → v2
-```
-
-Useful for canary-style validation.
-
----
-
-# 🧠 Deployment Comparison
-
-| Deployment | Downtime | Extra Capacity | Mental Model |
-|---|---|---|---|
-| All at Once | Yes | No | Fast |
-| Rolling | No* | No | Batches |
-| Rolling + Batch | No | Yes | Keep capacity |
-| Immutable | No | Yes | Fresh instances |
-| Traffic Splitting | No | Yes | Canary traffic |
-
-> [!tip] Exam Pattern
-> **Fastest deployment and downtime acceptable**
-> → All at Once
->
-> **Deploy gradually without extra capacity**
-> → Rolling
->
-> **Maintain full capacity**
-> → Rolling with Additional Batch
->
-> **Safest deployment / easy rollback**
-> → Immutable
->
-> **Test new version with percentage of real traffic**
-> → Traffic Splitting
-
----
-
-# 🔵 Blue/Green Deployment
-
-Another important Elastic Beanstalk pattern:
-
-```text
-BLUE Environment
-Production v1
-
-GREEN Environment
-New v2
-       ↓
-Test Green
-       ↓
-Swap Environment URLs
-       ↓
-GREEN becomes Production
-```
-
-Instead of updating the existing environment:
-
-1. Create a second environment.
-2. Deploy new version.
-3. Test it.
-4. Swap environment CNAMEs.
-
-> [!tip] Exam Pattern
-> **Deploy new environment**
-> +
-> **Test before production**
-> +
-> **Quick switch / rollback**
->
-> → ✅ Blue/Green Deployment
-
----
-
-# 🔐 IAM Roles
-
-Elastic Beanstalk Standard commonly involves two IAM concepts:
-
-### Service Role
-
-```text
-Elastic Beanstalk
-      ↓
-Service Role
-      ↓
-Manage AWS Resources
-```
-
-Allows Elastic Beanstalk to perform operations on your behalf.
-
-### EC2 Instance Profile
-
-```text
-EC2
- ↓
-Instance Profile
- ↓
-S3 / CloudWatch / other AWS services
-```
-
-Provides permissions to EC2 instances running the application.
-
-> [!danger] Don't Confuse
-> **Service Role**
-> → Elastic Beanstalk permissions
->
-> **Instance Profile**
-> → EC2 application permissions
-
----
-
-# ⚙️ Configuration
-
-Elastic Beanstalk allows configuration through:
-
-- Console
-- EB CLI
-- AWS CLI
-- Configuration files
-
-Application-specific environment configuration can be managed alongside deployments.
-
----
-
-# 💰 Pricing
-
-There is **no additional charge for Elastic Beanstalk itself**.
-
-You pay for the AWS resources used by the environment, such as:
-
-- EC2
-- Load Balancer
-- RDS
-- S3
-- CloudWatch
-
-> [!tip]
-> **Elastic Beanstalk itself → no additional service charge**
->
-> **Underlying resources → you pay**
-
----
-
-# 🆚 Elastic Beanstalk vs CloudFormation
-
-```text
-Elastic Beanstalk
-→ Deploy APPLICATIONS
-
-CloudFormation
-→ Deploy INFRASTRUCTURE
-```
-
-| Requirement | Think |
-|---|---|
-| Deploy web application easily | Beanstalk |
-| Define AWS infrastructure as code | CloudFormation |
-| Full infrastructure control | CloudFormation |
-| Managed application platform | Beanstalk |
-
-> [!danger]
-> Elastic Beanstalk is **not an IaC replacement for CloudFormation**.
-
----
-
-# 🆚 Elastic Beanstalk vs Lambda
-
-```text
-Traditional Application
-→ Elastic Beanstalk
-
-Event-Driven Serverless Code
-→ Lambda
-```
-
-| Requirement | Think |
-|---|---|
-| Traditional web app | Beanstalk |
-| Long-running application | Beanstalk |
-| Event-driven function | Lambda |
-| Sudden burst within seconds | Lambda |
-| No server management | Lambda |
-
-> [!danger] Exam Trap
-> **Sudden unpredictable burst that must scale within seconds**
->
-> → Lambda
->
-> Don't choose Elastic Beanstalk merely because it supports Auto Scaling.
-
----
-
-# 🆚 Elastic Beanstalk vs ECS
-
-```text
-Application Deployment Platform
-→ Elastic Beanstalk
-
-Container Orchestration
-→ ECS
-```
-
-If the question specifically emphasizes:
-
-- Containers
-- Tasks
-- Services
-- Container orchestration
-
-→ Think ECS.
-
----
-
-# 🆚 Elastic Beanstalk vs OpsWorks
-
-```text
-Application Deployment
-→ Elastic Beanstalk
-
-Configuration Management
-Chef / Puppet
-→ OpsWorks
-```
-
-For SAA, Beanstalk is much more important.
-
----
-
-# ⚠️ High-Value Exam Traps
-
-> [!danger] Trap 1
-> **Elastic Beanstalk manages infrastructure, but you still own/pay for the underlying resources.**
-
----
-
-> [!danger] Trap 2
-> **Background processing + SQS**
->
-> → Worker Environment
-
----
-
-> [!danger] Trap 3
-> **Fastest deployment + downtime acceptable**
->
-> → All at Once
-
----
-
-> [!danger] Trap 4
-> **Deployment in batches**
->
-> → Rolling
-
----
-
-> [!danger] Trap 5
-> **Maintain full capacity during rolling deployment**
->
-> → Rolling with Additional Batch
-
----
-
-> [!danger] Trap 6
-> **Fresh instances + safer rollback**
->
-> → Immutable
-
----
-
-> [!danger] Trap 7
-> **Percentage of production traffic to new version**
->
-> → Traffic Splitting
-
----
-
-> [!danger] Trap 8
-> **Completely separate environment + switch URLs**
->
-> → Blue/Green
-
----
-
-# 🆕 Current AWS Note
-
-Elastic Beanstalk currently has:
-
-```text
-Elastic Beanstalk
-│
-├── Standard
-│   └── EC2 + Auto Scaling
-│
-└── Cluster
-    └── Containers + EKS
-```
-
-For **SAA exam questions**, prioritize the classic **Beanstalk Standard / EC2 model** unless the question explicitly mentions the newer cluster/container model.
-
----
-
-# 🧠 Elastic Beanstalk in 20 Seconds
-
-```text
-Deploy Web Application
-→ Elastic Beanstalk
-
-HTTP
-→ Web Environment
-
-SQS / Background Jobs
-→ Worker Environment
-
-Scaling
-→ Auto Scaling
-
-Fast + Downtime OK
-→ All at Once
-
-Batches
-→ Rolling
-
-Batches + Full Capacity
-→ Rolling + Additional Batch
-
-Fresh Instances / Safe Rollback
-→ Immutable
-
-Small % Real Traffic
-→ Traffic Splitting
-
-Separate Environment
-→ Blue/Green
-```
-
-> [!summary] SAA Memory
-> **BEANSTALK = APPLICATION DEPLOYMENT**
->
-> **WEB = HTTP**
->
-> **WORKER = SQS**
->
-> **IMMUTABLE = NEW INSTANCES**
->
-> **BLUE/GREEN = NEW ENVIRONMENT + SWAP**
+Reviewed: 2026-09-21. Back to [[compute_overview|Compute]].
