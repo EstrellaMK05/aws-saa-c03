@@ -1,392 +1,122 @@
-# 🪣 Amazon S3
-
-> [!summary] Mental Model
-> **S3 = regional object storage**
-> Highly durable, scalable, and designed for storing objects inside buckets.
-
+---
+aliases: [Amazon S3, Simple Storage Service]
+tags: [aws/saa, storage]
 ---
 
-## 📌 Core
+# Amazon S3 — Objects, Protection and Lifecycle
 
-- **Object storage**
-- Bucket names must be **globally unique**
-- Bucket Region **cannot be changed** after creation
-- S3 is a **regional service**
-- Strong read-after-write consistency for:
-  - `PUT`
-  - Overwrite
-  - `DELETE`
-  - `GET`
-  - `HEAD`
-  - `LIST`
+## Mental Model
 
----
+**Store objects by key; access them through APIs. Choose the storage class by access frequency and retrieval requirements.**
 
-## 🗄️ Storage Classes
+S3 provides durable object storage, not a normal shared POSIX filesystem or EC2 block device.
 
-| Storage Class | Best For | Key Point |
+## Core
+
+### Buckets and consistency
+
+This note focuses on general-purpose buckets. A bucket has a fixed Region; moving data to another Region requires another bucket/data transfer. The default global namespace requires unique names across accounts/Regions within an AWS partition. Account-regional namespaces are also available, so “all bucket names always use one global naming scope” is too broad.
+
+S3 provides strong consistency for object writes, overwrites, deletes and listing. This does not make cross-Region replication synchronous or invalidate cached copies in CloudFront.
+
+### Storage-class decisions
+
+| Class | Access model | Cost/recovery distinction |
 |---|---|---|
-| **S3 Standard** | Frequently accessed data | Multi-AZ |
-| **Intelligent-Tiering** | Unknown/changing access | Automatic tiering |
-| **Standard-IA** | Infrequent access | Multi-AZ + retrieval fee |
-| **One Zone-IA** | Infrequent + recreatable | Single AZ, cheaper |
-| **Glacier Instant Retrieval** | Archive + immediate access | Millisecond retrieval |
-| **Glacier Flexible Retrieval** | Archive | Minutes to hours |
-| **Glacier Deep Archive** | Long-term archive | Lowest-cost archival option |
+| Standard | Frequent, immediate access | Regional resilience; no minimum storage duration |
+| Intelligent-Tiering | Unknown/changing access | Monitoring/tiering charges; optional archive tiers require restore |
+| Standard-IA | Infrequent but immediate | Multi-AZ; retrieval charges; 30-day minimum duration |
+| One Zone-IA | Infrequent, recreatable data | One AZ; retrieval charges; 30-day minimum duration |
+| Glacier Instant Retrieval | Rare but millisecond access | 90-day minimum duration; retrieval charges |
+| Glacier Flexible Retrieval | Archive with minutes-to-hours restore | Restore first; 90-day minimum duration |
+| Glacier Deep Archive | Long-term archive with hours of restore tolerance | Restore first; 180-day minimum duration |
+| Express One Zone | Latency-sensitive object access near compute | Directory buckets in one AZ; different feature/availability trade-offs |
 
-> [!tip] 🎯 Exam Clues
-> **Unknown access pattern** → Intelligent-Tiering  
-> **Infrequent + HA** → Standard-IA  
-> **Infrequent + recreatable** → One Zone-IA  
-> **Long-term archive** → Glacier / Deep Archive
+Minimum durations are billing conditions, not locks preventing deletion. Small-object minimum billable sizes, transition requests and retrieval fees can dominate savings. Intelligent-Tiering does not automatically optimize every tiny object; objects below its tiering size threshold remain in the frequent tier.
 
----
+### Lifecycle and versioning
 
-## 🔄 Versioning
+Lifecycle can transition eligible objects, expire current/noncurrent versions and abort incomplete multipart uploads. Transition eligibility depends on class, object size and age; a lifecycle rule is not permission to ignore minimum storage charges.
 
-- Disabled by default
-- Keeps **multiple versions** of an object
-- Protects against accidental overwrite/delete
-- `DELETE` without `VersionId` → creates a **delete marker**
-- Previous versions still exist
-- Permanent deletion → specify the `VersionId`
+With versioning enabled, a DELETE without a version ID normally adds a delete marker. The older data remains and is billable. Deleting a specific version is permanent unless retention protection blocks it. Suspending versioning does not erase existing history.
 
-> [!warning] ⚠️ Exam Trap
-> A normal `DELETE` on a versioned bucket **does not permanently delete the object**.
-> It creates a **delete marker**.
+For “delete after N days,” check **noncurrent versions**, delete markers, retention and replication too. Expiring only the current version of a versioned object is not complete data erasure.
 
----
+### Replication
 
-## 🌎 Replication
+- **CRR:** another Region; **SRR:** same Region. General-purpose bucket replication requires versioning and suitable permissions.
+- Live replication rules apply to eligible new writes; use **Batch Replication** for existing eligible objects.
+- Replication is asynchronous. S3 Replication Time Control addresses a defined replication-time requirement; ordinary CRR is not a zero-RPO guarantee.
+- SSE-KMS replication needs explicit configuration and suitable source/destination KMS permissions.
+- Delete-marker behavior is configurable; do not assume every deletion replicates. Permanent deletion of a specific source version is not replicated as deletion of the destination version.
 
-### CRR — Cross-Region Replication
-Replicates objects to a bucket in **another Region**.
+### Access and encryption
 
-### SRR — Same-Region Replication
-Replicates objects within the **same Region**.
+Keep objects private using IAM/resource policies and Block Public Access. New general-purpose buckets normally use Bucket owner enforced Object Ownership with ACLs disabled. Prefer policies over legacy ACLs.
 
-### Requirements
-
-- Versioning enabled on **source and destination**
-- S3 needs permission to replicate
-
-### Existing vs New Objects
-
-**New objects**
-→ CRR / SRR replication rule
-
-**Existing objects**
-→ **S3 Batch Replication**
-
-**SSE-KMS objects**
-→ KMS replication must be explicitly configured
-
-> [!warning] ⚠️ Exam Trap
-> **Transfer Acceleration ≠ Replication**
->
-> CRR → copy objects across Regions  
-> Transfer Acceleration → accelerate client ↔ S3 transfers
-
----
-
-## ♻️ Lifecycle
-
-Lifecycle rules can:
-
-- Transition objects between storage classes
-- Expire/delete objects
-- Manage noncurrent versions
-- Abort incomplete multipart uploads
-
-> [!tip] 🎯 Exam Clue
-> **Predictable change in access pattern over time**
-> → S3 Lifecycle Policy
-
----
-
-# 🔒 Security
-
-## Object Lock
-
-Provides **WORM** protection:
-
-**Write Once, Read Many**
-
-### Governance Mode
-
-- Prevents deletion/overwrite
-- Authorized users can **bypass retention**
-
-### Compliance Mode
-
-- Cannot be overwritten/deleted during retention
-- **Even root cannot bypass retention**
-
-> [!danger] ⚠️ Remember
-> **Governance** → privileged users may bypass  
-> **Compliance** → nobody can bypass during retention
-
-### Retention Period
-
-- Has an **expiration date**
-- Protects object until retention expires
-
-### Legal Hold
-
-- **No expiration date**
-- Remains until explicitly removed
-- Independent of retention period
-- Requires `s3:PutObjectLegalHold`
-
-> [!important]
-> **Retention Period + Legal Hold are independent.**
->
-> If either protection is still active → the object remains protected.
-
----
-
-## 🔐 Encryption
-
-### SSE-S3
-
-- S3 manages encryption keys
-- Default server-side encryption for new objects
-
-### SSE-KMS
-
-- Uses AWS KMS keys
-- More control over key permissions
-- KMS activity can be audited with CloudTrail
-
-**Reading an SSE-KMS object requires:**
-
-` s3:GetObject `  
-+
-` kms:Decrypt `
-
-### DSSE-KMS
-
-- Two independent layers of server-side encryption
-- Useful for strict compliance/security requirements
-
-### SSE-C
-
-- Customer provides encryption key
-- AWS performs encryption/decryption
-- AWS **does not store the customer key**
-
-### Client-Side Encryption
-
-→ Encrypt data **before uploading** to S3
-
-## 🔐 Client-Side vs Server-Side Encryption
-
-### Server-Side Encryption
-
-```text
-Plaintext
-   ↓
-   AWS
-   ↓
-Encryption
-   ↓
-S3
----
-
-## 🛡️ Access Control
-
-Objects are **private by default**.
-
-### Bucket Policy
-
-Resource-based policy.
-
-Supports:
-
-- `Allow`
-- Explicit `Deny`
-- Conditions
-
-**Require HTTPS**
-
-`aws:SecureTransport`
-
-**Require specific VPC Endpoint**
-
-`aws:SourceVpce`
-
-### ACL
-
-- Legacy access control mechanism
-- Disabled by default for new buckets with **Bucket Owner Enforced**
-- Prefer **IAM + Bucket Policies**
-
-### Block Public Access
-
-→ Prevent accidental public exposure
-
----
-
-## 🔗 Presigned URLs
-
-Provides **temporary access** to private S3 objects.
-
-- Temporary upload/download
-- User doesn't need AWS credentials
-- Uses permissions of the principal that generated the URL
-
-> [!tip] 🎯 Exam Clue
-> **Temporary access to private S3 object without AWS credentials**
-> → Presigned URL
-
----
-
-# ⚡ Performance & Delivery
-
-## 🌐 CloudFront + S3
-
-Private content distribution:
-
-`User → CloudFront → OAC → Private S3 Bucket`
-
-### OAC — Origin Access Control
-
-Allows CloudFront to access a **private S3 bucket**.
-
-### CloudFront
-
-→ Global content delivery  
-→ Edge caching  
-→ Reduces load on origin
-
----
-
-## 🚀 S3 Transfer Acceleration
-
-Accelerates **long-distance transfers**.
-
-`Client → Edge Location → AWS Global Network → S3`
-
-Useful for:
-
-- Large uploads/downloads
-- Geographically distant clients
-
-Does **NOT**:
-
-- ❌ Replicate objects
-- ❌ Cache objects like CloudFront
-
-> [!tip] 🎯 Exam Clue
-> Users around the world uploading large files to **one S3 bucket**
-> → **S3 Transfer Acceleration**
-
----
-
-## 🧩 Multipart Upload
-
-- Upload large objects in **parts**
-- Failed parts can be retried independently
-- Improves reliability for large uploads
-
-> [!tip] 🎯 Exam Clue
-> **Large object + unreliable network**
-> → Multipart Upload
-
----
-
-# 📢 Events & Operations
-
-## S3 Event Notifications
-
-Can react to events such as:
-
-- Object creation
-- Object deletion
-
-Targets include:
-
-- Lambda
-- SQS
-- SNS
-- EventBridge integration
-
----
-
-## 🔑 MFA Delete
-
-Adds MFA protection for:
-
-- Permanently deleting object versions
-- Changing bucket versioning state
-
----
-
-## 📋 S3 Inventory
-
-Generates scheduled reports of:
-
-- Objects
-- Metadata
-
-Useful for:
-
-→ Auditing  
-→ Analysis of large buckets
-
----
-
-# 🌐 Networking
-
-## Gateway VPC Endpoint
-
-- Supports **S3 and DynamoDB**
-- Private VPC access
-- No NAT/Internet required
-- Preferred for normal private S3 access from a VPC
-
-## Interface Endpoint
-
-- PrivateLink-based
-- S3 also supports Interface Endpoints
-- Usually more expensive than Gateway Endpoint
-
-> [!tip] 🎯 Exam Clue
-> **EC2 private subnet → S3 + lowest cost**
-> → Gateway VPC Endpoint
-
----
-
-# 🧠 Quick Exam Traps
-
-| If you see... | Think... |
+| Mechanism | What it does |
 |---|---|
-| Replication across Regions | **CRR** |
-| Replicate existing objects | **S3 Batch Replication** |
-| Faster global uploads to S3 | **Transfer Acceleration** |
-| Global cached content | **CloudFront** |
-| Temporary private access | **Presigned URL** |
-| WORM | **Object Lock** |
-| No expiration protection | **Legal Hold** |
-| Retention nobody can bypass | **Compliance Mode** |
-| Versioned object + DELETE | **Delete Marker** |
-| Read SSE-KMS object | `s3:GetObject` + `kms:Decrypt` |
-| Predictable hot → cold transition | **Lifecycle Policy** |
-| Unknown access pattern | **Intelligent-Tiering** |
-| Private EC2 → S3, lowest cost | **Gateway Endpoint** |
+| SSE-S3 | S3-managed server-side encryption; baseline protection for new object uploads |
+| SSE-KMS | KMS key control/auditing; reading requires S3 and KMS authorization |
+| DSSE-KMS | Two layers of server-side encryption for suitable requirements |
+| SSE-C | Customer supplies encryption key material; configuration/support restrictions apply |
+| Client-side encryption | Data is encrypted before S3 receives it |
+| TLS / SecureTransport policy condition | Protect/require transport encryption |
 
----
+Changing bucket default encryption does not retroactively re-encrypt every existing object. S3 Bucket Keys can reduce KMS request costs for supported SSE-KMS use cases. Encryption does not itself prevent a policy from authorizing public access.
 
-> [!abstract] 🧠 S3 in 20 Seconds
+**Presigned URLs** delegate the signer's permitted access for a limited time. They are bearer credentials and may expire earlier when underlying temporary credentials expire; explicit denies still apply.
 
-> > **Storage:** Standard → IA → Glacier  
-> **Unknown pattern:** Intelligent-Tiering  
-> **Replication:** CRR / SRR  
-> **Existing replication:** Batch Replication  
-> **Protection:** Versioning + Object Lock  
-> **Temporary access:** Presigned URL  
-> **Global delivery:** CloudFront  
-> **Global uploads:** Transfer Acceleration  
-> **Private VPC access:** Gateway Endpoint  
-> **Encryption:** SSE-S3 / SSE-KMS  
-> **Automation:** Lifecycle + Event Notifications
+### Object Lock
+
+Object Lock protects **object versions** with WORM retention and requires versioning. Governance retention can be bypassed with specific permissions and the appropriate bypass request. Compliance retention cannot be shortened/bypassed during its term, including by root. A legal hold has no expiration and persists until an authorized user removes it.
+
+Retention and legal hold are independent. A new version or delete marker does not destroy the protected version. Object Lock can be enabled on eligible existing buckets; it is not limited to bucket creation.
+
+## Comparisons
+
+| Requirement | Mechanism |
+|---|---|
+| Retry parts of a large upload | Multipart upload; clean up abandoned parts |
+| Download part of an object | Range GET |
+| Accelerate distant clients' transfers into/out of a bucket | Transfer Acceleration |
+| Cache content globally | [[aws_cloudfront|CloudFront]] |
+| Private S3 origin behind CloudFront | OAC with a suitable bucket policy; website endpoints use a different model |
+| Low-cost private S3 access from a VPC | Gateway endpoint when its connectivity scope fits |
+| Private access through supported hybrid network paths | Consider an S3 interface endpoint; evaluate DNS and cost |
+| Scheduled object/metadata report | S3 Inventory |
+| Act on object events | Notifications or EventBridge integration |
+
+Event notifications can arrive more than once and are not globally ordered. Direct S3 notifications do not target SQS FIFO; route through EventBridge when that integration is required. Avoid writing results to the same triggering location without filters, which can create a loop.
+
+## Exam Traps
+
+- **Glacier Instant Retrieval does not need a restore job; Flexible/Deep Archive do.**
+- **Strong consistency does not mean synchronous replication.**
+- **Lifecycle expiration is not Object Lock.** One deletes eligible data; the other prevents protected version deletion.
+- **A delete marker is not permanent deletion of all versions.**
+- **SSE-KMS needs KMS permissions as well as S3 access.**
+- **Transfer Acceleration does not create a replica or act as CloudFront caching.**
+- **One Zone classes do not protect against destruction of that AZ.**
+
+## Scenario Check
+
+**Compliance records must be immediately readable, infrequently accessed, and impossible to delete for a fixed term.** Choose a class with immediate access and appropriate economics, plus Object Lock compliance retention. Glacier Deep Archive would miss immediate access, while versioning alone does not prevent privileged version deletion.
+
+## 30-Second Review
+
+S3 stores objects with strong consistency. Choose classes by retrieval delay and total cost. Versioning preserves history; Object Lock protects versions. Lifecycle transitions or expires eligible data. Replication is asynchronous; existing objects need Batch Replication. KMS encryption needs key permissions. Presigned URLs delegate temporary access. CloudFront caches, Transfer Acceleration speeds transfers, and endpoints provide private network paths.
+
+## Sources
+
+- [Bucket overview](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingBucket.html)
+- [Storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)
+- [Lifecycle transitions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html)
+- [Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html)
+- [Replication](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html)
+- [What is replicated](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-what-is-isnot-replicated.html)
+- [Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html)
+- [Server-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/serv-side-encryption.html)
+- [Event notifications](https://docs.aws.amazon.com/AmazonS3/latest/userguide/EventNotifications.html)
+
+Reviewed: 2026-09-22. Back to [[storage_overview|Storage]].

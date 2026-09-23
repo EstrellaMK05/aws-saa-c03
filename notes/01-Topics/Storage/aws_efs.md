@@ -1,665 +1,93 @@
-# 📁 Amazon EFS
-
-> [!summary] Mental Model
-> **Amazon EFS = Managed Shared File Storage**
->
-> Think:
->
-> **Multiple compute instances need to access the SAME files**
->
-> → Amazon EFS
-
+---
+aliases: [Amazon EFS, Elastic File System]
+tags: [aws/saa, storage]
 ---
 
-# 🎯 Core Purpose
+# Amazon EFS — Shared NFS Files
 
-Amazon Elastic File System (EFS) provides **managed, elastic file storage**.
+## Mental Model
 
-It uses the **NFS protocol** and can be mounted by multiple compute resources simultaneously.
+**Many clients mount the same persistent filesystem. Capacity grows with files; throughput is a separate decision.**
 
-```text
-EC2 ──┐
-EC2 ──┼──→ Amazon EFS
-EC2 ──┘       │
-              └── Shared Files
-```
+EFS suits shared Linux/POSIX file access, including compatible EC2, ECS and Lambda workloads.
 
-Common use cases:
+## Core
 
-- Shared application files
-- Web content
-- Content management systems
-- Home directories
-- Container persistent storage
-- Shared data across multiple EC2 instances
+### Availability and access
 
-> [!tip] Exam Pattern
-> **Multiple EC2 instances need concurrent access to the same files**
->
-> → ✅ Amazon EFS
+- **Regional:** redundant storage across AZs; use for shared files in a resilient Multi-AZ application.
+- **One Zone:** data in one AZ; lower-cost option when that failure risk and recovery plan are acceptable.
+- Mount targets provide private network access. For Regional EFS, place a mount target in each client AZ to favor local access; one per AZ is sufficient, not one per client subnet.
+- Allow NFS **TCP 2049** from appropriate client security groups; check routing and network ACLs too.
+- On-premises clients can access EFS over suitable private connectivity, such as VPN or Direct Connect, with correct routing/DNS.
 
----
+### Four independent choices
 
-# 🌎 Regional EFS
+| Dimension | Choices | Question answered |
+|---|---|---|
+| Filesystem type | Regional / One Zone | What failure scope is tolerated? |
+| Storage class | Standard / IA / Archive, where supported | How frequently are these files accessed? |
+| Performance mode | General Purpose / legacy Max I/O | What latency and I/O characteristics apply? |
+| Throughput mode | Elastic / Provisioned / Bursting | How much data can move per second? |
 
-A Regional EFS file system stores data redundantly across multiple Availability Zones.
+**General Purpose is the current recommendation.** Max I/O is a previous-generation mode with higher per-operation latency; “hundreds of clients” alone does not justify it.
 
-```text
-          Amazon EFS
-        Regional File System
-              │
-       ┌──────┼──────┐
-       ↓      ↓      ↓
-     AZ-A    AZ-B    AZ-C
-      │       │       │
-     EC2     EC2     EC2
-```
+| Throughput mode | Choose when | Important behavior |
+|---|---|---|
+| Elastic | Demand is spiky, variable or difficult to predict | Automatically adjusts with activity; no burst-credit management |
+| Provisioned | You know the required sustained throughput | Specify throughput independent of stored size and burst credits |
+| Bursting | Size-based baseline and burst credits fit the workload | Baseline depends on data in Standard storage; sustained demand can exhaust credits |
 
-Designed for:
+All clients share filesystem throughput. The amount stored is not a measurement of read/write demand.
 
-- High availability
-- Multi-AZ architectures
-- Shared file storage
+### Storage classes and lifecycle
 
-> [!important] Exam Pattern
-> **Shared file system + EC2 across multiple AZs + High Availability**
->
-> → ✅ Regional Amazon EFS
+Standard fits frequently accessed files. IA and Archive reduce storage cost for colder data, with access charges and different latency/economic trade-offs. Archive is supported on Regional filesystems using Elastic throughput.
 
----
+Lifecycle policies move eligible files between classes, including a configured return to Standard on access. They **do not implement “delete after 30 days.”** EFS Archive remains filesystem-accessible; do not import S3 Glacier restore-job rules into EFS.
 
-# 🏠 EFS One Zone
+### Security and protection
 
-EFS One Zone stores data within **one Availability Zone**.
+Use KMS encryption at rest, TLS in transit, appropriate IAM/filesystem policies and POSIX permissions. Network reachability does not automatically grant file access.
 
-```text
-AZ-A
- │
- ├── EC2
- │
- └── EFS One Zone
-```
+**Access points** can enforce an application-specific root directory and POSIX identity. Combine them with authorization rules if applications must be restricted to their assigned entry points; merely creating an access point does not remove all alternate access paths.
 
-Advantages:
+Use AWS Backup for historical recovery. EFS replication can support a separate recovery filesystem, including cross-Region designs; it is asynchronous and is not a replacement for backup history. See [[backup_and_restore]].
 
-- Lower cost
+## Comparisons
 
-Tradeoff:
-
-- Less resilient than Regional EFS
-
-> [!warning] Exam
-> **Cost optimization + data can tolerate AZ-level risk**
->
-> → EFS One Zone
->
-> **High Availability across AZs**
->
-> → Regional EFS
-
----
-
-# 🌐 Mount Targets
-
-To access EFS from a VPC, clients connect through **mount targets**.
-
-A mount target:
-
-- Exists in a subnet
-- Has an IP address
-- Uses Security Groups
-- Provides network access to EFS
-
-Recommended architecture:
-
-```text
-VPC
-│
-├── AZ-A
-│   ├── EC2
-│   └── EFS Mount Target
-│
-├── AZ-B
-│   ├── EC2
-│   └── EFS Mount Target
-│
-└── AZ-C
-    ├── EC2
-    └── EFS Mount Target
-```
-
-> [!tip]
-> Create a mount target in each AZ where clients need to access EFS.
-
----
-
-# 🔌 NFS
-
-Amazon EFS uses **Network File System (NFS)**.
-
-Important port:
-
-```text
-NFS
- ↓
-TCP 2049
-```
-
-Typical Security Group rule:
-
-```text
-EFS Security Group
-
-Inbound:
-TCP 2049
-Source: EC2 Security Group
-```
-
-> [!danger] Exam Pattern
-> EC2 cannot mount EFS because network access is blocked.
->
-> Check:
->
-> → **TCP 2049**
->
-> → Security Groups
-
----
-
-# 💾 Storage Classes
-
-## EFS Standard
-
-For frequently accessed files requiring low latency.
-
-```text
-Frequently Accessed
-       ↓
-EFS Standard
-```
-
----
-
-## EFS Infrequent Access — IA
-
-Cost-optimized for files accessed infrequently.
-
-```text
-Less Frequently Accessed
-         ↓
-      EFS IA
-```
-
----
-
-## EFS Archive
-
-For data accessed only rarely.
-
-```text
-Rarely Accessed
-      ↓
-EFS Archive
-```
-
-> [!tip] Memory
-> **Standard → Active**
->
-> **IA → Infrequent**
->
-> **Archive → Rare**
-
----
-
-# ♻️ Lifecycle Management
-
-EFS Lifecycle Management can automatically move files between storage classes based on access patterns.
-
-```text
-Frequently Used
-      ↓
-EFS Standard
-      ↓
-Less Frequently Used
-      ↓
-EFS IA
-      ↓
-Rarely Used
-      ↓
-EFS Archive
-```
-
-This reduces storage costs without requiring applications to move files manually.
-
----
-
-# ⚡ Performance Mode
-
-## General Purpose
-
-Recommended for most workloads.
-
-Characteristics:
-
-- Lowest per-operation latency
-- Default performance mode
-- Suitable for most applications
-
-```text
-Most Workloads
-     ↓
-General Purpose
-```
-
----
-
-## Max I/O
-
-Previous-generation performance mode designed for highly parallelized workloads that can tolerate higher latency.
-
-> [!warning]
-> AWS currently recommends **General Purpose** for new EFS file systems.
->
-> Do not automatically choose Max I/O just because the question says
-> **"high performance."**
-
----
-
-# 🚀 Throughput Modes
-
-Do NOT confuse **Performance Mode** with **Throughput Mode**.
-
-```text
-Performance Mode
-→ latency / I/O characteristics
-
-Throughput Mode
-→ amount of throughput available
-```
-
----
-
-## ⚡ Elastic Throughput
-
-Automatically scales throughput according to workload activity.
-
-Best for:
-
-- Unpredictable workloads
-- Spiky workloads
-- Difficult-to-forecast throughput
-
-```text
-Unpredictable / Spiky
-        ↓
-Elastic Throughput
-```
-
-> [!tip]
-> Elastic is the recommended/default throughput mode for most new workloads.
-
----
-
-## 🎛️ Provisioned Throughput
-
-You specify the throughput required independently of file system size.
-
-Best when:
-
-- Throughput requirements are known
-- You need predictable throughput independent of stored capacity
-
-```text
-Known Throughput Requirement
-           ↓
-Provisioned Throughput
-```
-
----
-
-## 💥 Bursting Throughput
-
-Throughput scales with the amount of data stored.
-
-Uses burst credits to temporarily exceed baseline throughput.
-
-```text
-More Storage
-    ↓
-More Baseline Throughput
-    +
-Burst Credits
-```
-
----
-
-# 🧠 Throughput Memory Trick
-
-```text
-Elastic
-→ AUTO / unpredictable
-
-Provisioned
-→ I KNOW what I need
-
-Bursting
-→ STORAGE SIZE + credits
-```
-
----
-
-# 🔐 Security
-
-Amazon EFS supports:
-
-- Encryption at rest using AWS KMS
-- Encryption in transit using TLS
-- Security Groups
-- IAM authorization
-- EFS File System Policies
-- POSIX permissions
-
-```text
-EC2
- ↓
-Security Group
- ↓
-Mount Target
- ↓
-EFS
- ↓
-File Permissions
-```
-
----
-
-# 🚪 EFS Access Points
-
-EFS Access Points provide an application-specific entry point into an EFS file system.
-
-They can enforce:
-
-- Root directory
-- POSIX user/group identity
-- File system permissions
-
-```text
-              EFS
-               │
-       ┌───────┴───────┐
-       ↓               ↓
-Access Point A     Access Point B
-       ↓               ↓
- Application A     Application B
-```
-
-> [!tip] Exam Pattern
-> Multiple applications share EFS but require **different directories or identities**.
->
-> → ✅ EFS Access Points
-
----
-
-# 📈 Elastic Capacity
-
-EFS automatically grows and shrinks as files are added and removed.
-
-```text
-More Files
-   ↓
-EFS grows automatically
-
-Delete Files
-   ↓
-EFS shrinks automatically
-```
-
-You don't normally provision filesystem storage capacity beforehand.
-
----
-
-# 🆚 EFS vs EBS
-
-This is VERY important for SAA.
-
-| EFS | EBS |
+| Need | Choose |
 |---|---|
-| File storage | Block storage |
-| NFS | Block device |
-| Shared access | Usually attached to an EC2 instance |
-| Multi-AZ Regional option | Volume belongs to one AZ |
-| Automatically scales storage | Provisioned volume capacity |
-| Multiple clients | EC2 disk-like storage |
+| Generic shared NFS files | EFS |
+| Persistent block disk | [[aws_ebs|EBS]] |
+| Native Windows SMB/AD | [[aws_efx|FSx for Windows]] |
+| Specialized HPC parallel filesystem | [[aws_efx|FSx for Lustre]] |
+| API-accessed objects | [[aws_s3|S3]] |
 
-### Mental Model
+## Exam Traps
 
-```text
-EC2 ─┐
-EC2 ─┼── EFS
-EC2 ─┘
-      SHARED
+- **Performance mode ≠ throughput mode.** General Purpose can be paired with an appropriate throughput mode.
+- **Under 1 TB does not mean low throughput demand.** Frequent reads of the same files can move far more data than the stored capacity.
+- **Provisioned and Elastic both decouple throughput from dataset size.** Use predictability and the answer choices to distinguish them.
+- **One Zone is not Multi-AZ resilience**, even if clients run in several AZs.
+- **A mount target is a network entry point, not a separate copy of the filesystem.**
+- **EFS lifecycle is tiering, not expiration.**
 
-EC2 ───── EBS
-           DISK
-```
+## Scenario Check — ECS Outputs
 
-> [!danger] Exam Pattern
-> **Multiple EC2 instances across AZs need the same files**
->
-> → EFS
->
-> **EC2 needs persistent block storage**
->
-> → EBS
+**Hundreds of ECS tasks write roughly 20 MB each, share persistent output/state files, and retain less than 1 TB.** EFS addresses shared filesystem access. If the choices contrast Bursting with a known sustained throughput requirement, Provisioned avoids dependence on size/credits. If demand is unpredictable and Elastic is offered, evaluate Elastic. Neither 20 MB nor task count alone specifies the required MB/s without a time interval and access pattern.
 
----
+## 30-Second Review
 
-# 🆚 EFS vs S3
+EFS supplies shared NFS files over TCP 2049. Regional protects across AZs; One Zone accepts an AZ dependency. Choose General Purpose, then select Elastic for variable demand, Provisioned for known throughput, or Bursting for size-based performance. Access points control application entry identities/directories with appropriate policies. Lifecycle tiers files; backups preserve history. Small datasets can still need high throughput.
 
-| EFS | S3 |
-|---|---|
-| File system | Object storage |
-| NFS | S3 API |
-| Mount like filesystem | Access objects |
-| Directories/files semantics | Buckets/objects |
-| Shared filesystem workloads | Massive object storage |
+## Sources
 
-```text
-Need a FILE SYSTEM
-      ↓
-     EFS
+- [EFS overview](https://docs.aws.amazon.com/efs/latest/ug/whatisefs.html)
+- [Performance and throughput](https://docs.aws.amazon.com/efs/latest/ug/performance.html)
+- [Storage features](https://docs.aws.amazon.com/efs/latest/ug/features.html)
+- [Mount targets](https://docs.aws.amazon.com/efs/latest/ug/manage-fs-access-create-delete-mount-targets.html)
+- [Access points](https://docs.aws.amazon.com/efs/latest/ug/efs-access-points.html)
+- [EFS with ECS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/efs-volumes.html)
 
-Need OBJECT STORAGE
-      ↓
-      S3
-```
-
----
-
-# 🆚 EFS vs Instance Store
-
-```text
-EFS
-→ Shared + Persistent
-
-EBS
-→ Block + Persistent
-
-Instance Store
-→ Local + Ephemeral
-```
-
----
-
-# 🔄 EFS Replication
-
-EFS supports replication to another EFS file system, including cross-Region replication.
-
-Useful for:
-
-- Disaster recovery
-- Business continuity
-- Regional resilience
-
-```text
-Region A
-  EFS
-   │
-   │ Replication
-   ▼
-Region B
-  EFS
-```
-
-> [!warning]
-> **Multi-AZ availability**
-> → Regional EFS
->
-> **Cross-Region disaster recovery**
-> → EFS Replication
-
----
-
-# ⚠️ High-Value Exam Traps
-
-> [!danger] Trap 1 — Shared Storage
-> Multiple EC2 instances need simultaneous access to the same files.
->
-> ✅ EFS
-
----
-
-> [!danger] Trap 2 — Multi-AZ Shared Storage
-> EC2 instances across multiple AZs need a highly available shared filesystem.
->
-> ✅ Regional EFS
-
----
-
-> [!danger] Trap 3 — NFS
-> Application requires managed NFS storage.
->
-> ✅ EFS
-
----
-
-> [!danger] Trap 4 — NFS Port
-> EC2 cannot connect to EFS.
->
-> Check:
->
-> ✅ TCP **2049**
-
----
-
-> [!danger] Trap 5 — Infrequent Files
-> Reduce cost for files accessed infrequently.
->
-> ✅ EFS IA + Lifecycle Management
-
----
-
-> [!danger] Trap 6 — Spiky Throughput
-> Throughput is unpredictable and changes significantly.
->
-> ✅ Elastic Throughput
-
----
-
-> [!danger] Trap 7 — Known Throughput
-> Application requires a specific throughput independent of filesystem size.
->
-> ✅ Provisioned Throughput
-
----
-
-> [!danger] Trap 8 — Different Application Directories
-> Applications sharing EFS need isolated root directories / POSIX identities.
->
-> ✅ EFS Access Points
-
----
-
-> [!danger] Trap 9 — Shared vs Block
-> Multiple EC2 instances need shared files.
->
-> ❌ EBS
->
-> ✅ EFS
-
----
-
-# 🆚 Quick Comparison
-
-| Requirement | Solution |
-|---|---|
-| Shared filesystem | EFS |
-| Persistent EC2 block storage | EBS |
-| Object storage | S3 |
-| Temporary local EC2 storage | Instance Store |
-| Multi-AZ shared filesystem | Regional EFS |
-| Lower-cost single-AZ filesystem | EFS One Zone |
-| Frequently accessed files | EFS Standard |
-| Infrequently accessed files | EFS IA |
-| Rarely accessed files | EFS Archive |
-| Unpredictable throughput | Elastic Throughput |
-| Known throughput requirement | Provisioned Throughput |
-| Throughput based on storage size | Bursting Throughput |
-| Application-specific EFS entry point | EFS Access Point |
-| NFS connectivity | TCP 2049 |
-
----
-
-# ⚡ EFS in 30 Seconds
-
-```text
-Amazon EFS
-│
-├── 📁 Managed File Storage
-├── 🔌 NFS → TCP 2049
-├── 👥 Shared by multiple clients
-│
-├── 🌎 Regional
-│   └── Multi-AZ
-│
-├── 🏠 One Zone
-│   └── Lower cost / single AZ
-│
-├── 💾 Storage Classes
-│   ├── Standard
-│   ├── IA
-│   └── Archive
-│
-├── ⚡ Performance
-│   └── General Purpose
-│
-├── 🚀 Throughput
-│   ├── Elastic → unpredictable
-│   ├── Provisioned → known requirement
-│   └── Bursting → storage size
-│
-├── 🚪 Access Points
-│   └── App-specific access
-│
-└── 🔐 Security
-    ├── KMS at rest
-    ├── TLS in transit
-    └── Security Groups
-```
-
-> [!summary] SAA Memory Trick
-> **Shared Files + Multiple EC2 → EFS**
->
-> **EFS = NFS = TCP 2049**
->
-> **Multi-AZ → Regional EFS**
->
-> **Single AZ / cheaper → EFS One Zone**
->
-> **Spiky throughput → Elastic**
->
-> **Known throughput → Provisioned**
->
-> **EC2 disk → EBS**
->
-> **Objects → S3**
+Reviewed: 2026-09-22. Back to [[storage_overview|Storage]].

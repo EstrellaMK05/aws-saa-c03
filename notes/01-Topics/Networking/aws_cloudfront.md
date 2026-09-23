@@ -1,649 +1,102 @@
-# 🌍 Amazon CloudFront
-
-> [!summary] Mental Model
-> **CloudFront = CDN**
->
-> Delivers content closer to users through AWS edge locations.
->
-> ```text
-> User
->   ↓
-> Edge Location
->   ↓ cache miss
-> CloudFront Origin
-> ```
-
 ---
-
-# 🎯 Core Purpose
-
-Amazon CloudFront is AWS's Content Delivery Network (CDN).
-
-Main benefits:
-
-- Lower latency
-- Global content delivery
-- Caching at edge locations
-- Reduced load on origins
-- Integration with AWS WAF and AWS Shield
-
-```text
-Global Users
-     ↓
-CloudFront Edge Locations
-     ↓
-   Origin
-```
-
+aliases: [Amazon CloudFront]
+tags: [aws, saa-c03, networking]
 ---
+# Amazon CloudFront
 
-# 🏠 Origins
+## Mental Model
 
-CloudFront retrieves content from an **origin**.
+**CloudFront = an HTTP/HTTPS delivery layer near your viewers.** A cache hit serves content from the edge; a miss retrieves content from an origin. It can also accelerate dynamic requests without caching their responses.
 
-Common origins:
+## Core
 
-- Amazon S3
-- Application Load Balancer
-- EC2 / HTTP server
-- API Gateway
-- Other HTTP origins
+### Origins and behaviors
 
-```text
-             CloudFront
-            /     |     \
-           ↓      ↓      ↓
-          S3     ALB    API
-```
+Origins include S3 REST endpoints, HTTP servers, ALBs, and API Gateway. Cache behaviors match ordered path patterns to an origin and processing configuration: `/images/*` can go to S3 while `/api/*` goes to an ALB.
 
-> [!tip] Exam Pattern
-> **Serve content globally with low latency**
->
-> → ✅ CloudFront
+Supported **VPC origins** allow private ALB, NLB, or EC2 origins through service-managed connectivity. Do not assume every CloudFront origin must be publicly reachable. Check VPC-origin limitations for the required protocol and origin type before choosing it.
 
----
+### Cache correctness before cache hit rate
 
-# ⚡ Edge Caching
+A **cache policy** determines TTL settings and which request values form the cache key, including configured headers, cookies, and query strings. Requests with the same key can receive the same cached representation.
 
-```text
-User
- ↓
-Edge Location
- ↓
-Cache HIT
- ↓
-Return immediately ⚡
-```
+An **origin request policy** can forward additional request values without adding them to the cache key. Forwarding a user identifier while ignoring it in the key can be unsafe if personalized responses are cached together. Disable caching for sensitive personalized responses or design correct isolation and authorization.
 
-If the object is not cached:
+Avoid including irrelevant tracking parameters in the key: they fragment the cache. TTL controls freshness versus origin load. A minimum TTL greater than zero can cause caching even when the origin sends `no-cache`, `no-store`, or `private` directives; select policies deliberately.
 
-```text
-User
- ↓
-Edge Location
- ↓
-Cache MISS
- ↓
-Origin
- ↓
-Edge Cache
- ↓
-User
-```
+CloudFront caches GET/HEAD responses and optionally OPTIONS. Allowing other HTTP methods does not make POST/PUT responses cacheable.
 
-Benefits:
+Use versioned asset filenames for routine deployments. Invalidation removes selected cached paths before normal expiration, but propagation is not instantaneous and it does not clear viewers' independent browser caches.
 
-- Lower latency
-- Fewer requests to origin
-- Reduced origin load
+### Two separate access boundaries
 
----
+| Boundary | Mechanism | Purpose |
+|---|---|---|
+| CloudFront to private S3 origin | OAC and bucket policy | Restrict origin reads to the intended distribution |
+| Viewer to restricted CloudFront content | Signed URL or signed cookies | Time-limited/policy-constrained viewer access |
 
-# ⏱️ TTL
+OAC is preferred over legacy OAI. Use a regular S3 bucket REST origin, keep public access blocked, and authorize the distribution in the bucket policy. For SSE-KMS objects, configure the required key permissions too.
 
-TTL determines how long CloudFront keeps an object in cache.
+An **S3 website endpoint** is a custom HTTP origin: it does not support OAC/OAI or HTTPS from CloudFront to that website endpoint. If private S3 and HTTPS throughout are required, use the REST origin pattern instead.
 
-```text
-Origin Object
-     ↓
-CloudFront Cache
-     ↓
-     TTL
-     ↓
-Refresh from Origin
-```
+Signed URLs suit an individual object or clients without cookie support. Signed cookies suit a collection of objects without changing every URL. The application authenticates the user and issues the signature; the signed artifact is a bearer credential until its conditions expire.
 
-Think:
+S3 presigned URLs authorize direct S3 requests. CloudFront signed URLs authorize requests through the distribution. They do not have identical access paths.
 
-**Long TTL**
-→ More caching  
-→ Less origin traffic  
-→ Potentially stale content
+### HTTPS and security
 
-**Short TTL**
-→ Fresher content  
-→ More origin requests
+Configure viewer HTTPS separately from origin HTTPS. For an ACM viewer certificate on a custom CloudFront domain, use **us-east-1**. An ALB origin certificate belongs in that ALB's Region. The domain names and certificates must match their respective connections.
 
----
+AWS WAF filters web requests; Shield addresses DDoS protection. Neither is a substitute for origin access restrictions. A publicly accessible origin can otherwise be called directly.
 
-# 🧹 Cache Invalidation
+### Availability and edge processing
 
-If content changes before TTL expires, CloudFront can invalidate cached objects.
+An origin group defines a primary and secondary origin. Configured failures can trigger fallback for **GET, HEAD, and eligible cached OPTIONS** requests. POST/PUT requests do not get this origin failover. The secondary must already have suitable content/state; CloudFront does not replicate it.
 
-```text
-Old Object in Cache
-        ↓
-   Invalidation
-        ↓
-Remove from Edge Cache
-        ↓
-Fetch New Version
-```
+Origin Shield adds a caching layer to consolidate origin requests. It is unrelated to AWS Shield DDoS protection. Price classes trade geographic edge coverage against delivery cost.
 
-> [!tip] Exam Pattern
-> **Content changed and must be updated immediately before TTL expires**
->
-> → ✅ CloudFront Invalidation
+**CloudFront Functions** handles lightweight viewer request/response logic, such as URL normalization and redirects. **Lambda@Edge** supports more involved processing and origin events. Neither requires learning detailed runtime quotas for the main SAA architecture decisions.
 
-Another common strategy:
+## Comparisons
 
-```text
-image-v1.jpg
-      ↓
-image-v2.jpg
-```
-
-→ **Versioned file names**
-
----
-
-# 🪣 CloudFront + Private S3
-
-Very important for SAA.
-
-```text
-Internet
-   ↓
-CloudFront
-   ↓
-OAC
-   ↓
-Private S3 Bucket
-```
-
-Use **Origin Access Control (OAC)** so users access the objects through CloudFront instead of directly through S3.
-
-> [!tip] Exam Pattern
-> **Private S3 content**
-> +
-> **Users must access through CloudFront**
->
-> → ✅ CloudFront + OAC
-
-> [!warning] OAI vs OAC
-> **OAI = legacy**
->
-> **OAC = recommended modern approach**
-
----
-
-# 🔐 OAC vs Signed URL
-
-These solve DIFFERENT problems.
-
-```text
-User
- ↓
-Signed URL
- ↓
-CloudFront
- ↓
-OAC
- ↓
-Private S3
-```
-
-**OAC**
-→ Controls **CloudFront → S3**
-
-**Signed URL / Cookie**
-→ Controls **User → CloudFront**
-
-> [!danger] Exam Trap
-> OAC does NOT authenticate viewers.
->
-> Signed URLs/Cookies do NOT replace OAC for restricting direct S3 access.
-
----
-
-# 🔏 Signed URLs
-
-Signed URLs provide temporary/restricted access to private CloudFront content.
-
-```text
-Authenticated User
-       ↓
-Application
-       ↓
-Signed URL
-       ↓
-CloudFront
-       ↓
-Private Content
-```
-
-Best when granting access to **individual files**.
-
-Example:
-
-```text
-/private/video.mp4
-?Expires=...
-&Signature=...
-```
-
-> [!tip] Exam Pattern
-> **Temporary access to one private CloudFront object**
->
-> → ✅ Signed URL
-
----
-
-# 🍪 Signed Cookies
-
-Signed cookies are useful when a user needs access to **multiple restricted files**.
-
-```text
-Subscriber
-    ↓
-Signed Cookie
-    ↓
-CloudFront
-    ↓
-/premium/*
-```
-
-> [!tip] Exam Pattern
-> **Access to many private files**
-> +
-> **Do not want to modify each URL**
->
-> → ✅ Signed Cookies
-
-### Signed URL vs Signed Cookie
-
-| Requirement | Use |
+| Requirement | Evaluate |
 |---|---|
-| One/specific file | Signed URL |
-| Multiple private files | Signed Cookies |
-| Client does not support cookies | Signed URL |
-| Keep existing URLs unchanged | Signed Cookies |
+| Repeated worldwide web downloads | CloudFront |
+| Dynamic web application acceleration | CloudFront, even with caching disabled where appropriate |
+| Global TCP/UDP flows and stable entry IPs | [[aws_global_accelerator]] |
+| Long-distance object transfers to one S3 bucket | S3 Transfer Acceleration |
+| DNS answer selection | [[aws_route53]] |
 
----
+## Exam Traps
 
-# 🆚 S3 Presigned URL vs CloudFront Signed URL
+- OAC secures origin access; it does not verify a viewer's subscription.
+- Signed cookies do not close a publicly readable S3 bucket.
+- “Allow all HTTP methods” does not mean “cache all methods.”
+- An origin request policy and cache policy solve different problems.
+- Origin failover is not general failover for every API write request.
+- A CDN can deliver dynamic traffic; “not cacheable” alone does not rule out CloudFront.
+- Static global IP requirements are a strong Global Accelerator clue, but read the full service configuration in the question.
 
-```text
-S3 Presigned URL
-      ↓
-Direct S3 Access
+## Scenario Check
 
-CloudFront Signed URL
-      ↓
-CloudFront Edge
-      ↓
-Origin
-```
+**Prompt:** Subscribers download many video segments globally. The bucket must not be publicly accessible, and URLs should remain unchanged.
 
-> [!tip]
-> **Temporary direct S3 access**
-> → S3 Presigned URL
->
-> **Private globally distributed cached content**
-> → CloudFront Signed URL
+**Answer:** Use CloudFront with an S3 REST origin, OAC and restrictive bucket policy, plus signed cookies for authorized viewers. Configure cache behavior and HTTPS. OAC alone would not restrict viewers to subscribers.
 
----
+## 30-Second Review
 
-# 🛣️ Cache Behaviors
+> CloudFront delivers web content through edge locations. Cache keys determine which requests share responses; forwarding a value does not automatically isolate the cache. OAC protects private S3 origins, while signed URLs/cookies restrict viewers. Website endpoints cannot use OAC. Viewer ACM certificates belong in us-east-1. Origin failover covers selected read methods, not general API writes or data replication.
 
-Cache behaviors determine how CloudFront handles different URL patterns.
+## Sources
 
-```text
-CloudFront Distribution
-│
-├── /images/* → S3
-├── /api/*    → ALB
-└── Default   → S3
-```
+- [Cache keys and TTL policies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/controlling-the-cache-key.html)
+- [Origin request policies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/controlling-origin-requests.html)
+- [Cache behavior and method settings](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html)
+- [S3 origin access](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html)
+- [Signed URLs and cookies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-choosing-signed-urls-cookies.html)
+- [VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html)
+- [HTTPS and custom domains](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-alternate-domain-names.html)
+- [Origin failover](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/high_availability_origin_failover.html)
+- [Edge function choices](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-functions-choosing.html)
 
-A behavior can control things such as:
-
-- Origin
-- Cache policy
-- Allowed HTTP methods
-- Viewer protocol policy
-
-> [!tip] Exam Pattern
-> **Different URL paths need different origins**
->
-> → Cache Behaviors
-
----
-
-# 🔀 Origin Failover
-
-CloudFront can use an **origin group** containing:
-
-```text
-CloudFront
-    ↓
-Origin Group
-├── Primary Origin
-└── Secondary Origin
-```
-
-If the primary origin fails under configured conditions:
-
-```text
-Primary ❌
-   ↓
-CloudFront
-   ↓
-Secondary ✅
-```
-
-> [!tip] Exam Pattern
-> **CloudFront + origin high availability**
->
-> → Origin Group / Origin Failover
-
----
-
-# 🛡️ CloudFront + WAF + Shield
-
-```text
-Internet
-   ↓
-Shield
-   ↓
-AWS WAF
-   ↓
-CloudFront
-   ↓
-Origin
-```
-
-Think:
-
-**Shield**
-→ DDoS
-
-**WAF**
-→ HTTP/HTTPS filtering  
-→ SQL injection  
-→ XSS  
-→ Rate-based rules
-
-**CloudFront**
-→ CDN / edge caching
-
----
-
-# 🌐 HTTPS
-
-CloudFront supports HTTPS between:
-
-```text
-Viewer
- ↓ HTTPS
-CloudFront
-```
-
-and CloudFront can use HTTPS to communicate with compatible origins.
-
-Custom domain certificates for CloudFront use AWS Certificate Manager.
-
-> [!tip]
-> **CloudFront ACM certificate**
->
-> → Remember **us-east-1 (N. Virginia)** for the viewer certificate.
-
----
-
-# 💰 Price Classes
-
-CloudFront Price Classes can limit which edge locations are used.
-
-Mental model:
-
-```text
-More Edge Locations
-→ Better global coverage
-→ Potentially higher cost
-
-Restricted Price Class
-→ Lower cost
-→ Potential latency tradeoff
-```
-
-> [!tip] Exam Pattern
-> **Reduce CloudFront cost and geographic coverage can be limited**
->
-> → Price Class
-
----
-
-# 🛡️ Origin Shield
-
-Origin Shield adds another caching layer between CloudFront edge locations and the origin.
-
-```text
-Users
-  ↓
-Edge Locations
-  ↓
-Origin Shield
-  ↓
-Origin
-```
-
-Benefits:
-
-- Reduce requests reaching origin
-- Improve cache hit ratio
-- Protect origin from request spikes
-
----
-
-# 🆚 CloudFront vs Global Accelerator
-
-Very important for SAA.
-
-## CloudFront
-
-```text
-HTTP / HTTPS Content
-        ↓
-Edge Cache
-        ↓
-Origin
-```
-
-Think:
-
-- CDN
-- Content caching
-- Static/dynamic web content
-- HTTP/HTTPS
-
-## Global Accelerator
-
-```text
-User
- ↓
-AWS Global Network
- ↓
-Regional Endpoint
-```
-
-Think:
-
-- TCP/UDP
-- Static Anycast IP addresses
-- Global network routing
-- Applications that should not rely on caching
-
-| Requirement | Think |
-|---|---|
-| CDN / caching | **CloudFront** |
-| Static website assets | **CloudFront** |
-| Video/content distribution | **CloudFront** |
-| TCP/UDP application | **Global Accelerator** |
-| Static Anycast IPs | **Global Accelerator** |
-| Global routing without caching | **Global Accelerator** |
-
-> [!danger] Exam Trap
-> **Global users** alone does NOT automatically mean CloudFront.
->
-> Ask:
->
-> **Do I need caching/content delivery?**
-> → CloudFront
->
-> **Do I need TCP/UDP acceleration/static Anycast IPs?**
-> → Global Accelerator
-
----
-
-# 🆚 CloudFront vs S3 Transfer Acceleration
-
-```text
-CloudFront
-→ DOWNLOAD / deliver content to users
-→ Cache at edge
-
-S3 Transfer Acceleration
-→ UPLOAD/DOWNLOAD objects to/from S3 faster over long distances
-→ Uses edge network
-→ No CDN cache
-```
-
-> [!tip] Exam Pattern
-> Users worldwide repeatedly download the same content
-> → CloudFront
->
-> Users worldwide upload large files to one S3 bucket
-> → S3 Transfer Acceleration
-
----
-
-# 🆚 CloudFront vs Route 53
-
-```text
-Route 53
-→ DNS
-
-CloudFront
-→ CDN / Content Delivery
-```
-
-Route 53 decides **where DNS points**.
-
-CloudFront delivers/caches **content**.
-
----
-
-# ⚠️ High-Value Exam Traps
-
-> [!danger] Trap 1
-> **Private S3 + only CloudFront should access origin**
->
-> → OAC
-
-> [!danger] Trap 2
-> **Temporary access to ONE private CloudFront object**
->
-> → Signed URL
-
-> [!danger] Trap 3
-> **Access to MULTIPLE private CloudFront objects**
->
-> → Signed Cookies
-
-> [!danger] Trap 4
-> **Immediately remove stale cached content**
->
-> → Invalidation
-
-> [!danger] Trap 5
-> **CloudFront origin high availability**
->
-> → Origin Group / Origin Failover
-
-> [!danger] Trap 6
-> **Global TCP/UDP application**
->
-> → Global Accelerator, not CloudFront
-
-> [!danger] Trap 7
-> **Worldwide large uploads to S3**
->
-> → S3 Transfer Acceleration
-
-> [!danger] Trap 8
-> **SQL injection / XSS at the edge**
->
-> → WAF + CloudFront
-
----
-
-# 🧠 CloudFront in 30 Seconds
-
-```text
-Global Content
-→ CloudFront
-
-Cache
-→ Edge Locations
-
-Private S3
-→ OAC
-
-One Private File
-→ Signed URL
-
-Many Private Files
-→ Signed Cookies
-
-Stale Cached Content
-→ Invalidation
-
-Origin HA
-→ Origin Group
-
-Extra Origin Cache Layer
-→ Origin Shield
-
-Web Attacks
-→ WAF
-
-DDoS
-→ Shield
-
-TCP/UDP + Static IP
-→ Global Accelerator
-
-Fast Global S3 Upload
-→ Transfer Acceleration
-```
-
-> [!summary] SAA Memory
-> **CDN = CLOUDFRONT**
->
-> **PRIVATE S3 = OAC**
->
-> **PRIVATE VIEWER ACCESS = SIGNED URL / COOKIE**
->
-> **ORIGIN HA = ORIGIN GROUP**
->
-> **TCP/UDP = GLOBAL ACCELERATOR**
+Reviewed: 2026-09-22. Back to [[networking_overview]].

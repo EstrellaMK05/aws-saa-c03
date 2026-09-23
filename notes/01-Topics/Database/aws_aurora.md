@@ -1,945 +1,104 @@
-# 🌌 Amazon Aurora
-
-> [!summary] Mental Model
-> **Amazon Aurora = AWS-optimized relational database compatible with MySQL/PostgreSQL**
->
-> Think:
->
-> **Relational + High Performance + High Availability + Read Scaling**
->
-> ```text
->                Aurora Cluster
->                     │
->          ┌──────────┴──────────┐
->          ↓                     ↓
->      Writer DB           Aurora Replicas
->          │                     │
->          └──────────┬──────────┘
->                     ↓
->             Shared Cluster Storage
-> ```
-
+---
+aliases: [Amazon Aurora, Aurora]
+tags: [aws/saa, database]
 ---
 
-# 📌 Core
+# Amazon Aurora
 
-Amazon Aurora is a relational database engine built for AWS.
+## Mental Model
 
-Compatible with:
+**Relational compute sits above shared distributed storage. Scale the writer, readers and storage according to different needs.**
 
-- **MySQL**
-- **PostgreSQL**
+Aurora is MySQL/PostgreSQL-compatible, not automatically identical to every engine feature or extension.
 
-Aurora is part of **Amazon RDS**, but uses a different distributed storage architecture.
+## Core
 
-Key characteristics:
+### Cluster architecture
 
-- Managed relational database
-- MySQL/PostgreSQL compatible
-- High availability
-- Automatic storage scaling
-- Read scaling with Aurora Replicas
-- Automatic failover
-- Multi-AZ distributed storage
+A conventional Aurora cluster has one writer and up to 15 Aurora Replicas. Its storage maintains six copies across three AZs and grows automatically. Readers share the distributed cluster storage and can serve as failover targets.
 
-> [!tip] 🎯 Exam Clue
-> **High-performance managed relational DB + MySQL/PostgreSQL compatibility**
-> → Amazon Aurora
+Multi-AZ storage does not remove the value of an existing replica in another AZ: redundant compute can reduce recovery work when the writer fails. Configure failover priorities and application reconnection. Adding replicas scales reads, not independent writers.
 
----
+### Endpoints
 
-# 🏗️ Aurora Cluster Architecture
+| Endpoint | Destination | Important detail |
+|---|---|---|
+| Cluster / writer | Current writer | Reads and writes; stable name across writer failover |
+| Reader | Available Aurora Replicas | Balances **connections**, not individual queries |
+| Instance | One specific instance | Useful for diagnostics; does not follow the writer role automatically |
+| Custom | Selected group of instances | Separate workloads onto appropriate replica groups |
 
-An Aurora database normally consists of:
+If there are **no Aurora Replicas**, the reader endpoint connects to the writer, which can accept writes. Therefore, a reader endpoint is not an authorization boundary that always enforces read-only access. Use database privileges for that requirement.
 
-```text
-Aurora DB Cluster
-│
-├── Writer / Primary
-│
-├── Aurora Replica
-├── Aurora Replica
-├── Aurora Replica
-│
-└── Shared Cluster Storage
-```
+Connection pools may keep many queries on the same selected reader. The writer endpoint does not inspect SELECT statements and automatically distribute them to replicas.
 
-The instances share the same distributed storage layer.
+### Three kinds of scaling
 
-This differs from traditional RDS replication where each DB instance maintains its own storage.
-
----
-
-# 💾 Aurora Storage
-
-Aurora automatically maintains:
-
-**6 copies of the data across 3 Availability Zones**
-
-```text
-              Aurora Storage
-
-        AZ-A       AZ-B       AZ-C
-         │          │          │
-       Copy       Copy       Copy
-       Copy       Copy       Copy
-
-              6 copies total
-```
-
-Storage is:
-
-- Distributed
-- Multi-AZ
-- Self-healing
-- Automatically scalable
-
-Aurora continuously detects storage failures and repairs them using healthy copies.
-
-> [!tip] 🎯 Exam Clue
-> **6 copies across 3 AZs**
-> → Aurora
-
----
-
-# ✍️ Writer Instance
-
-The **Writer / Primary Instance** handles:
-
-- `INSERT`
-- `UPDATE`
-- `DELETE`
-- DDL
-- Read operations if needed
-
-```text
-Application
-     ↓
-Writer Endpoint
-     ↓
-Primary Instance
-     ↓
-Shared Storage
-```
-
-Normally there is **one writer** in an Aurora cluster.
-
----
-
-# 📖 Aurora Replicas
-
-Aurora Replicas are used primarily for:
-
-- Read scaling
-- High availability
-- Failover targets
-
-Aurora supports up to:
-
-# **15 Aurora Replicas**
-
-```text
-                 Writer
-                   │
-          Shared Storage
-          ↙       ↓       ↘
-      Replica   Replica   Replica
-```
-
-Because Aurora Replicas share the cluster storage, replication lag is typically very low.
-
-> [!tip] 🎯 Exam Clue
-> **Aurora + increase read capacity**
-> → Add Aurora Replicas
-
----
-
-# 🏥 Failover
-
-If the writer fails:
-
-```text
-Writer ❌
-   ↓
-Aurora detects failure
-   ↓
-Promote Aurora Replica
-   ↓
-New Writer ✅
-```
-
-Aurora can automatically promote an existing replica.
-
-You can configure **failover priority** for Aurora Replicas.
-
-> [!tip] 🎯 Exam Clue
-> **Aurora HA + faster failover**
-> → Aurora Replica in another AZ
-
----
-
-# 🔗 Aurora Endpoints
-
-This is VERY important for SAA.
-
-Aurora abstracts database connections using different **endpoints**.
-
-Main types:
-
-1. Cluster / Writer Endpoint
-2. Reader Endpoint
-3. Instance Endpoint
-4. Custom Endpoint
-
----
-
-# ✍️ Cluster / Writer Endpoint
-
-Connects to the **current primary/writer instance**.
-
-```text
-Application
-     ↓
-Cluster Endpoint
-     ↓
-Current Writer
-```
-
-Use for:
-
-- Reads + Writes
-- `INSERT`
-- `UPDATE`
-- `DELETE`
-- DDL
-
-If failover occurs:
-
-```text
-Old Writer ❌
-
-Replica
-   ↓
-Promoted
-   ↓
-New Writer
-
-Cluster Endpoint
-       ↓
-New Writer
-```
-
-The application continues using the same cluster endpoint.
-
-> [!tip] 🎯 Exam Clue
-> **Write operations**
-> → Cluster / Writer Endpoint
-
----
-
-# 📖 Reader Endpoint
-
-Provides load balancing across available **Aurora Replicas**.
-
-```text
-Application
-     ↓
-Reader Endpoint
-     ↓
- ┌───────┬───────┬───────┐
- ↓       ↓       ↓
-Replica Replica Replica
-```
-
-Use for:
-
-- `SELECT`
-- Reporting
-- Read-heavy workloads
-
-The Reader Endpoint **cannot perform writes**.
-
-> [!tip] 🎯 Exam Clue
-> **Read scaling + automatic load balancing**
-> → Reader Endpoint
-
----
-
-# 🎯 Instance Endpoint
-
-Connects directly to **one specific DB instance**.
-
-```text
-Application
-     ↓
-Instance Endpoint
-     ↓
-Replica #2
-```
-
-Useful for:
-
-- Troubleshooting
-- Performance diagnosis
-- Connecting to a specific instance
-
-> [!tip] 🎯 Exam Clue
-> **Connect to one specific Aurora instance**
-> → Instance Endpoint
-
----
-
-# 🧩 Custom Endpoint
-
-A Custom Endpoint represents a **group of selected DB instances**.
-
-Example:
-
-```text
-Aurora Cluster
-
-High Capacity
-├── Replica A
-└── Replica B
-
-Low Capacity
-├── Replica C
-└── Replica D
-```
-
-Create:
-
-```text
-Production Endpoint
-        ↓
-Replica A + B
-
-Reporting Endpoint
-        ↓
-Replica C + D
-```
-
-Aurora load balances connections among the instances in each group.
-
-> [!tip] 🎯 Exam Clue
-> **Different workloads must use different groups/types of Aurora instances**
-> → Custom Endpoint
-
----
-
-# 🧠 Endpoint Cheat Sheet
-
-| Requirement | Endpoint |
+| Mechanism | Changes |
 |---|---|
-| Write operations | **Cluster / Writer** |
-| Load-balanced reads | **Reader** |
-| Specific DB instance | **Instance** |
-| Specific group of instances | **Custom** |
+| Storage growth | Cluster storage capacity |
+| Aurora Auto Scaling | Number of supported reader replicas |
+| Aurora Serverless v2 | Compute capacity of configured serverless instances, measured in ACUs |
 
-> [!warning] ⚠️ Exam Trap
-> **Writer Endpoint**
-> → Current primary
->
-> **Reader Endpoint**
-> → Load balances reads
->
-> **Instance Endpoint**
-> → One specific instance
->
-> **Custom Endpoint**
-> → Selected group of instances
+Serverless v2 scales within configured bounds; it still needs sensible HA placement, capacity limits and workload testing. Supported versions/configurations can pause at zero ACUs when configured accordingly. Resume latency and pause-blocking features matter: do not memorize either “v2 never pauses” or “every serverless cluster always scales to zero.”
 
----
+For predictable sustained demand, compare provisioned and serverless costs rather than assuming a winner from the label alone. **Aurora Standard** charges for I/O; **I/O-Optimized** changes the cost model and can fit I/O-heavy workloads. Compare total compute, storage and I/O cost.
 
-# 🚨 Custom Endpoint Exam Scenario
+### Global Database
 
-Suppose:
+Global Database replicates to secondary clusters in other Regions for regional reads and disaster recovery. Cross-Region replication is asynchronous. Planned switchovers and unplanned failovers have different data-loss conditions; do not promise zero RPO for any regional outage.
 
-```text
-High-capacity replicas
-→ Production queries
+Global write forwarding, where supported, forwards secondary-Region writes to the primary writer. It does not turn the deployment into independent active-active writers in every Region. Recover the application, credentials and traffic routing as well as the database.
 
-Low-capacity replicas
-→ Reporting
-```
+### Recovery and copies
 
-Don't use the normal Reader Endpoint because it load balances across the available reader replicas without separating them according to your workload requirement.
+| Feature | Purpose | Boundary |
+|---|---|---|
+| PITR / snapshots | Historical recovery | Restore a new cluster and validate/cut over |
+| Backtrack | Rewind an existing supported Aurora MySQL cluster | Not PostgreSQL; must be enabled/configured and meet version/feature restrictions |
+| Clone | Fast development/test copy using copy-on-write | Changes consume additional storage; not a replacement for independent backups |
+| Replica failover | Recover from a failed writer | Does not undo propagated logical mistakes |
 
-Instead:
+Backtrack affects the cluster's data state, not just one mistaken row. Plan the impact on valid later writes; keep backups even when Backtrack is enabled.
 
-```text
-Production
-    ↓
-Custom Endpoint A
-    ↓
-High-Capacity Replicas
+Use KMS encryption, TLS, appropriate IAM database authentication or Secrets Manager, and RDS Proxy where connection pooling fits. See [[aws_rds]] for these shared concepts.
 
+## Comparisons
 
-Reporting
-    ↓
-Custom Endpoint B
-    ↓
-Low-Capacity Replicas
-```
-
-> [!danger] 🎯 Exam Clue
-> **Route workloads based on instance capacity/configuration**
-> → Custom Endpoints
-
----
-
-# 📈 Aurora Auto Scaling
-
-Aurora Auto Scaling can automatically adjust the number of Aurora Replicas according to workload.
-
-```text
-Read Traffic ↑
-      ↓
-Aurora Auto Scaling
-      ↓
-Add Replicas
-```
-
-Then:
-
-```text
-Read Traffic ↓
-      ↓
-Remove Replicas
-```
-
-Useful for variable read workloads.
-
-> [!tip] 🎯 Exam Clue
-> **Automatically scale Aurora read capacity**
-> → Aurora Auto Scaling
-
----
-
-# 🌍 Aurora Global Database
-
-Aurora Global Database spans **multiple AWS Regions**.
-
-```text
-              Region A
-          Primary Cluster
-                 │
-                 │ Replication
-                 ↓
-              Region B
-         Secondary Cluster
-                 │
-                 ↓
-              Region C
-         Secondary Cluster
-```
-
-Designed for:
-
-- Global applications
-- Low-latency global reads
-- Cross-Region disaster recovery
-- Protection from Region-level failures
-
-> [!tip] 🎯 Exam Clue
-> **Aurora + global reads + cross-Region DR**
-> → Aurora Global Database
-
----
-
-# 🌎 Global Database Mental Model
-
-```text
-Normal Aurora
-→ Multi-AZ / Regional HA
-
-Aurora Global Database
-→ Multi-Region
-```
-
-> [!warning] ⚠️ Exam Trap
-> **Multi-AZ ≠ Multi-Region**
->
-> Multi-AZ protects against **AZ failures**.
->
-> Global Database helps protect against **Regional failures**.
-
----
-
-# ⚡ Aurora Serverless
-
-Aurora Serverless automatically adjusts database capacity based on demand.
-
-```text
-Application Traffic
-       ↓
-Aurora Serverless
-       ↓
-Capacity scales
-up / down
-```
-
-Instead of choosing a fixed DB instance size, Aurora adjusts capacity according to workload.
-
-Useful for:
-
-- Variable workloads
-- Unpredictable workloads
-- Applications where database demand changes significantly
-
-> [!tip] 🎯 Exam Clue
-> **Aurora + unpredictable/intermittent database workload**
-> → Aurora Serverless
-
----
-
-# ⚔️ Provisioned vs Serverless
-
-## Aurora Provisioned
-
-You choose DB instance classes.
-
-```text
-db.r...
-db.t...
-etc.
-```
-
-Good for:
-
-- Predictable workloads
-- Consistent database usage
-- More explicit capacity planning
-
-## Aurora Serverless
-
-Capacity adjusts automatically.
-
-Good for:
-
-- Variable traffic
-- Unpredictable workloads
-- Minimal capacity management
-
-> [!tip] 🧠 Mental Model
-> **Predictable workload**
-> → Provisioned
->
-> **Unpredictable / variable**
-> → Serverless
-
----
-
-# ⏪ Aurora Backtrack
-
-Aurora Backtrack allows you to move the database back to an earlier point in time **without restoring a backup into a new cluster**.
-
-Example:
-
-```text
-10:00  Database OK
-  ↓
-10:15  Bad UPDATE 💥
-  ↓
-10:20  Detect problem
-  ↓
-Backtrack
-  ↓
-10:14  Database restored
-```
-
-Useful for quickly recovering from:
-
-- Accidental DELETE
-- Incorrect UPDATE
-- Application mistakes
-
-> [!tip] 🎯 Exam Clue
-> **Undo database mistake quickly without restoring backup**
-> → Aurora Backtrack
-
-> [!warning]
-> Backtrack is **not a replacement for backups**.
-
----
-
-# ⚔️ Backtrack vs PITR
-
-## Backtrack
-
-```text
-Existing Aurora Cluster
-       ↓
-Rewind
-       ↓
-Earlier State
-```
-
-Fast rollback of the existing cluster.
-
-## Point-In-Time Restore
-
-```text
-Backup
-   ↓
-Restore
-   ↓
-New DB Cluster
-```
-
-> [!tip] 🎯 Exam Clue
-> **Quickly rewind Aurora**
-> → Backtrack
->
-> **Restore database from backup**
-> → PITR
-
----
-
-# 💾 Backups
-
-Aurora automatically backs up its cluster volume.
-
-Supports:
-
-- Automated backups
-- Point-In-Time Recovery
-- Manual snapshots
-
-Backup retention can be configured.
-
-Snapshots can be retained independently.
-
----
-
-# 📸 Database Cloning
-
-Aurora supports fast **database cloning**.
-
-```text
-Production Aurora
-       ↓
-     Clone
-       ↓
-Test / Development Aurora
-```
-
-Initially, the clone uses a **copy-on-write** model.
-
-This avoids immediately making a full physical copy of all data.
-
-Useful for:
-
-- Testing
-- Development
-- Creating database copies quickly
-
-> [!tip] 🎯 Exam Clue
-> **Quickly create test copy of large Aurora database**
-> → Aurora Database Cloning
-
----
-
-# 🔐 Security
-
-Aurora supports encryption at rest using **AWS KMS**.
-
-Can protect:
-
-- Cluster storage
-- Backups
-- Snapshots
-- Replicas
-
-Encryption in transit can use:
-
-```text
-SSL / TLS
-```
-
----
-
-# 🔑 IAM Database Authentication
-
-Aurora MySQL and Aurora PostgreSQL can support IAM database authentication.
-
-Instead of:
-
-```text
-Username + Long-Lived Password
-```
-
-you can use:
-
-```text
-IAM
- ↓
-Temporary Authentication Token
- ↓
-Aurora
-```
-
-> [!tip] 🎯 Exam Clue
-> **Authenticate to Aurora without long-lived DB password**
-> → IAM Database Authentication
-
----
-
-# 🔑 Secrets Manager
-
-Secrets Manager can store and automatically rotate database credentials.
-
-```text
-Application
-     ↓
-Secrets Manager
-     ↓
-Credentials
-     ↓
-Aurora
-```
-
-> [!tip] 🎯 Exam Clue
-> **Store + automatically rotate Aurora password**
-> → Secrets Manager
-
----
-
-# 🔌 RDS Proxy + Aurora
-
-RDS Proxy can sit between applications and Aurora.
-
-```text
-Lambda / Application
-        ↓
-     RDS Proxy
-        ↓
-      Aurora
-```
-
-Benefits:
-
-- Connection pooling
-- Reuse database connections
-- Handle connection spikes
-- Improve application resilience
-
-Especially useful with:
-
-```text
-Lambda → Aurora
-```
-
-> [!tip] 🎯 Exam Clue
-> **Lambda creates too many Aurora connections**
-> → RDS Proxy
-
----
-
-# ⚔️ Aurora vs Standard RDS
-
-Both are managed relational databases.
-
-## Standard RDS
-
-Supports engines such as:
-
-- MySQL
-- PostgreSQL
-- MariaDB
-- Oracle
-- SQL Server
-
-## Aurora
-
-AWS-designed relational engine compatible with:
-
-- MySQL
-- PostgreSQL
-
-Aurora emphasizes:
-
-- Distributed storage
-- Read scaling
-- Fast failover
-- Up to 15 Aurora Replicas
-- Global Database
-- Serverless options
-
-> [!tip] 🎯 Exam Clue
-> **Need Oracle / SQL Server**
-> → Standard RDS
->
-> **MySQL/PostgreSQL compatible + AWS-optimized HA/scaling**
-> → Aurora
-
----
-
-# ⚔️ Aurora vs DynamoDB
-
-## Aurora
-
-→ Relational  
-→ SQL  
-→ Joins  
-→ Transactions  
-→ MySQL/PostgreSQL compatibility
-
-## DynamoDB
-
-→ NoSQL  
-→ Key-value/document  
-→ Massive horizontal scale  
-→ Serverless
-
-> [!tip] 🎯 Exam Clue
-> **Relational SQL**
-> → Aurora
->
-> **Massive key-value NoSQL**
-> → DynamoDB
-
----
-
-# ⚔️ Aurora vs Redshift
-
-## Aurora
-
-Primarily:
-
-**OLTP**
-
-```text
-Orders
-Payments
-Users
-Application Transactions
-```
-
-## Redshift
-
-Primarily:
-
-**OLAP**
-
-```text
-Data Warehouse
-Analytics
-BI
-Large Aggregations
-```
-
-> [!tip] 🧠 Mental Model
-> **Aurora → Run the application**
->
-> **Redshift → Analyze the business**
-
----
-
-# ⚠️ Quick Exam Traps
-
-| If you see... | Think... |
+| Requirement | Starting point |
 |---|---|
-| MySQL/PostgreSQL compatible AWS DB | **Aurora** |
-| 6 copies across 3 AZs | **Aurora Storage** |
-| Aurora writes | **Cluster/Writer Endpoint** |
-| Load-balanced reads | **Reader Endpoint** |
-| Connect specific instance | **Instance Endpoint** |
-| Route workloads to selected replicas | **Custom Endpoint** |
-| Read scaling | **Aurora Replicas** |
-| Up to 15 read replicas | **Aurora** |
-| Automatic read scaling | **Aurora Auto Scaling** |
-| Unpredictable DB workload | **Aurora Serverless** |
-| Multi-Region Aurora | **Global Database** |
-| Region-level DR | **Global Database** |
-| Quickly rewind DB | **Backtrack** |
-| Quickly create test DB copy | **Database Cloning** |
-| Too many DB connections | **RDS Proxy** |
-| Rotate DB credentials | **Secrets Manager** |
-| SQL/relational | **Aurora/RDS** |
-| NoSQL | **DynamoDB** |
-| Data warehouse | **Redshift** |
+| Read scale within a Region | Aurora Replicas and reader/custom endpoints |
+| Variable relational compute | Aurora Serverless v2 |
+| Relational reads near global users and cross-Region DR | Aurora Global Database |
+| Oracle or SQL Server compatibility | Appropriate RDS engine, not Aurora |
+| Native multi-Region key-value writes | [[aws_dynamodb|DynamoDB global tables]], if the data model fits |
+| Large BI/warehouse workloads | [[aws_redshift|Redshift]] |
 
----
+## Exam Traps
 
-# 🚨 Most Important Exam Distinctions
+- **Reader endpoint balances connections, not each SQL query.**
+- **With no replicas, the reader endpoint can reach the writer.**
+- **Backtrack is an Aurora MySQL capability with restrictions.** Do not apply it to Aurora PostgreSQL.
+- **Six storage copies are not six query-serving instances.**
+- **Serverless v2 compute scaling differs from adding replicas.**
+- **Global write forwarding is not independent local writing in every Region.**
+- **A database failover time is not the application's complete RTO.**
 
-```text
-Writer Endpoint
-→ WRITE
+## Scenario Check
 
-Reader Endpoint
-→ READ + LOAD BALANCING
+**A production workload and a heavy reporting workload must use different reader instance groups.** Create appropriate custom endpoints and route each application accordingly. The generic reader endpoint does not partition those workloads by intent. An instance endpoint can pin to one reader, but does not provide a selected group of readers.
 
-Instance Endpoint
-→ ONE INSTANCE
+## 30-Second Review
 
-Custom Endpoint
-→ SELECTED GROUP
-```
+Aurora separates compute from shared Multi-AZ storage. One writer handles writes; replicas scale reads and support failover. Writer, reader, instance and custom endpoints have different routing roles; reader routing is per connection. Serverless v2 scales compute, while Auto Scaling adjusts readers. Global Database adds cross-Region replication. Backtrack is restricted to supported MySQL clusters; backups remain necessary.
 
-```text
-Aurora Replica
-→ READ SCALING
-→ FAILOVER TARGET
+## Sources
 
-Aurora Auto Scaling
-→ Automatically add/remove replicas
-```
+- [Aurora high availability](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Concepts.AuroraHighAvailability.html)
+- [Reader endpoint behavior](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Endpoints.Reader.html)
+- [Serverless v2 pause/resume](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html)
+- [Global Database recovery](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database-disaster-recovery.html)
+- [Backtrack](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraMySQL.Managing.Backtrack.html)
+- [Storage configurations](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html)
 
-```text
-Multi-AZ Aurora
-→ REGIONAL HA
-
-Global Database
-→ MULTI-REGION
-```
-
-```text
-Provisioned Aurora
-→ Predictable workload
-
-Aurora Serverless
-→ Variable/unpredictable workload
-```
-
-```text
-Backtrack
-→ REWIND existing cluster
-
-PITR
-→ RESTORE from backup
-```
-
----
-
-> [!abstract] 🧠 Amazon Aurora in 30 Seconds
-> **Type:** Managed relational database
->
-> **Compatible:** MySQL + PostgreSQL
->
-> **Storage:** 6 copies / 3 AZs
->
-> **Writer:** Cluster Endpoint
->
-> **Reads:** Reader Endpoint
->
-> **Specific instance:** Instance Endpoint
->
-> **Selected replicas:** Custom Endpoint
->
-> **Read Scaling:** Aurora Replicas
->
-> **Replicas:** Up to 15
->
-> **Automatic read scaling:** Aurora Auto Scaling
->
-> **Variable workload:** Aurora Serverless
->
-> **Multi-Region:** Global Database
->
-> **Quick rewind:** Backtrack
->
-> **Fast test copy:** Database Cloning
->
-> **Connection pooling:** RDS Proxy
+Reviewed: 2026-09-22. Back to [[database_overview|Databases]].

@@ -1,355 +1,79 @@
-# 📤 AWS Transfer Family
-
-> [!summary] Mental Model
-> **AWS Transfer Family = Managed File Transfer**
->
-> ```text
-> SFTP / FTPS / FTP / AS2
->           ↓
->   AWS Transfer Family
->           ↓
->       S3 or EFS
-> ```
-
-AWS Transfer Family provides fully managed file transfer services without having to manage your own SFTP/FTP servers.
-
+---
+aliases: [AWS Transfer Family, Managed File Transfer]
+tags: [aws/saa, storage]
 ---
 
-# 🎯 Supported Protocols
+# AWS Transfer Family
 
-| Protocol | Key Point |
+## Mental Model
+
+**Keep the partner's file-transfer protocol; let AWS manage the transfer endpoint and place data in the supported storage backend.**
+
+Choose protocol, identity, network exposure and storage together.
+
+## Core
+
+| Protocol | Meaning | Storage distinction |
+|---|---|---|
+| SFTP | File transfer over SSH | Supported S3 or EFS server configurations |
+| FTPS | FTP secured with TLS | Supported S3 or EFS server configurations |
+| FTP | Unencrypted FTP | Supported configurations; restrict to appropriate private networking |
+| AS2 | B2B message exchange, signing/encryption and delivery receipts | S3 backend; not EFS |
+
+Transfer Family also has browser-based and connector capabilities. Learn the server/protocol/backend distinction first; do not assume every feature supports every protocol.
+
+### S3 vs EFS
+
+- **S3:** object workflows, downstream event processing, lifecycle transitions and expiration. Configure encryption and retention for the business requirement.
+- **EFS:** shared filesystem semantics and POSIX ownership/permissions for applications reading the same files.
+- A transfer endpoint does not make object storage behave exactly like every POSIX filesystem operation.
+
+### Identity and network access
+
+Choose supported identity-provider options for the protocol: service-managed users or suitable external/custom integration where supported. Authentication identifies the user; their associated IAM/storage permissions determine access. EFS also needs correct POSIX identities and permissions.
+
+Endpoint support varies by protocol. Use appropriate VPC-hosted endpoints and routing/security controls for private access or supported address restrictions. Do not assume a public endpoint supports every protocol or that “VPC-hosted” always means internet-inaccessible.
+
+Separate **encryption in transit** from **encryption at rest**. SFTP protects the transfer using SSH; backend encryption and KMS permissions are separate settings.
+
+### Processing and retention
+
+Managed workflows can perform supported post-upload steps such as copying, tagging or custom processing. Check protocol support: AS2 messages do not execute workflows merely because a workflow is attached to the server.
+
+For S3, use lifecycle for age-based transitions/expiration and Object Lock for immutable retention. On a versioned bucket, include noncurrent versions in the deletion design. EFS lifecycle tiers files; it does not implement automatic age-based deletion.
+
+## Comparisons
+
+| Requirement | Choice |
 |---|---|
-| **SFTP** | File transfer over SSH |
-| **FTPS** | FTP secured with TLS |
-| **FTP** | Unencrypted FTP |
-| **AS2** | B2B / partner data exchange |
+| Partners must keep SFTP, with minimal server administration | Transfer Family |
+| On-premises applications need SMB/NFS with local cache | [[aws_storage_gateway|S3 File Gateway]] |
+| Copy an existing file-server dataset and periodic changes | [[aws_datasync|DataSync]] |
+| Temporary browser/client access to an S3 object without an SFTP requirement | Consider an S3 presigned URL |
+| Custom transfer-server behavior outside managed capabilities | Evaluate self-managed compute and its operational cost |
 
-> [!tip] Exam Pattern
-> **Managed SFTP server in AWS**
->
-> → ✅ AWS Transfer Family
+## Exam Traps
 
----
+- **SFTP is not FTP over TLS.** SSH → SFTP; TLS → FTPS.
+- **AS2 does not use EFS as its backend.** The broad “S3 or EFS” statement is protocol-dependent.
+- **Encryption does not grant authorization.** Identity, IAM and backend permissions still matter.
+- **S3 lifecycle expiration does not delete all retained versions automatically.** Check versioning and Object Lock.
+- **EFS lifecycle does not mean delete after N days.**
+- **Transfer Family is not a local cache or general dataset-synchronization engine.**
 
-# 🗄️ Storage Backends
+## Scenario Check
 
-Transfer Family can use:
+**Partners upload over SFTP; files must be encrypted at rest and removed after an allowed retention period with little server administration.** Use Transfer Family with S3, appropriate encryption/permissions and lifecycle rules covering relevant versions. Do not choose EFS lifecycle for expiration, and do not delete data earlier than Object Lock/compliance rules allow.
 
-- **Amazon S3**
-- **Amazon EFS**
+## 30-Second Review
 
-```text
-             Transfer Family
-             /             \
-            ↓               ↓
-           S3              EFS
-        Objects        File System
-```
+Transfer Family manages file-transfer endpoints. SFTP uses SSH; FTPS uses TLS; AS2 supports B2B exchanges with S3, not EFS. Choose a compatible backend, identity provider and endpoint exposure. S3 lifecycle can expire eligible objects; EFS lifecycle only tiers files. Permissions and encryption are separate. DataSync migrates datasets, while Storage Gateway provides ongoing hybrid interfaces and cache.
 
----
+## Sources
 
-# 🪣 Transfer Family + S3
+- [Transfer Family overview](https://docs.aws.amazon.com/transfer/latest/userguide/what-is-aws-transfer-family.html)
+- [AS2 capabilities](https://docs.aws.amazon.com/transfer/latest/userguide/create-b2b-server.html)
+- [AS2 server and workflow restrictions](https://docs.aws.amazon.com/transfer/latest/userguide/create-as2-transfer-server.html)
+- [Endpoint types](https://docs.aws.amazon.com/transfer/latest/userguide/create-server-in-vpc.html)
 
-Use S3 when you need:
-
-- Object storage
-- High durability
-- Lifecycle rules
-- Archiving
-- Cost-effective storage
-- Integration with other AWS services
-
-```text
-SFTP Client
-    ↓
-Transfer Family
-    ↓
-Amazon S3
-    ↓
-Lifecycle Rule
-    ↓
-Archive / Delete
-```
-
-> [!tip] Exam Pattern
-> **SFTP + automatically delete files after X days**
->
-> → Transfer Family + **S3 Lifecycle**
-
----
-
-# 📂 Transfer Family + EFS
-
-Use EFS when applications require a real shared file system.
-
-```text
-SFTP Client
-    ↓
-Transfer Family
-    ↓
-Amazon EFS
-    ↓
-NFS File System
-```
-
-Think:
-
-- POSIX-style filesystem
-- Shared files
-- File-system semantics
-- Existing applications that need EFS
-
----
-
-# 🔐 Security
-
-Transfer Family supports secure managed file-transfer architectures.
-
-For SFTP:
-
-```text
-Client
-  ↓
-SFTP / SSH
-  ↓
-Transfer Family
-  ↓
-S3 / EFS
-```
-
-Authentication can use different identity-provider options depending on the configuration.
-
-IAM controls Transfer Family access to the underlying AWS resources.
-
----
-
-# 🌐 Endpoints
-
-Transfer Family supports different endpoint configurations depending on the protocol and access requirements.
-
-Think:
-
-```text
-Internet Clients
-      ↓
-Public Endpoint
-      ↓
-Transfer Family
-```
-
-or
-
-```text
-Private / Corporate Network
-          ↓
-      VPC Endpoint
-          ↓
-    Transfer Family
-```
-
-> [!tip] Exam Pattern
-> Need managed file transfer accessible only from private networks
->
-> → Think **VPC-hosted Transfer Family endpoint**
-
----
-
-# ⚙️ Managed Workflows
-
-Transfer Family can automatically process uploaded files.
-
-```text
-File Upload
-    ↓
-Transfer Family
-    ↓
-Managed Workflow
-    ↓
-Process File
-```
-
-Useful for automated post-upload processing.
-
----
-
-# 🆚 SFTP vs FTPS vs FTP
-
-```text
-SFTP
-→ SSH
-→ Secure
-
-FTPS
-→ FTP + TLS
-→ Secure
-
-FTP
-→ Unencrypted
-```
-
-> [!danger] Exam Trap
-> **SFTP is NOT FTP over SSL/TLS.**
->
-> SFTP → SSH
->
-> FTPS → TLS
-
----
-
-# 🆚 Transfer Family vs EC2 SFTP Server
-
-## Self-Managed
-
-```text
-Client
-  ↓
-EC2
-  ↓
-Install SFTP
-Patch OS
-Scale
-Monitor
-Configure HA
-```
-
-## Managed
-
-```text
-Client
-  ↓
-AWS Transfer Family
-  ↓
-S3 / EFS
-```
-
-> [!tip] Exam Pattern
-> **SFTP + least operational overhead**
->
-> → ✅ AWS Transfer Family
->
-> ❌ EC2 + manually installed SFTP
-
----
-
-# ♻️ Transfer Family + S3 Lifecycle
-
-Very common exam architecture:
-
-```text
-Partner
-  ↓
-SFTP
-  ↓
-AWS Transfer Family
-  ↓
-Encrypted S3 Bucket
-  ↓
-S3 Lifecycle
-  ↓
-Transition / Expire
-```
-
-> [!important] Exam Pattern
-> **SFTP**
-> +
-> **High Availability**
-> +
-> **Encryption at Rest**
-> +
-> **Delete after N days**
-> +
-> **Least Operational Overhead**
->
-> → ✅ Transfer Family + encrypted S3 + S3 Lifecycle
-
----
-
-# ⚠️ Lifecycle Trap
-
-### S3 Lifecycle
-
-Can:
-
-- Transition objects to cheaper storage classes
-- Expire/delete objects automatically
-
-```text
-S3 Object
-   ↓ 30 days
-S3 Lifecycle
-   ↓
-DELETE
-```
-
-### EFS Lifecycle Management
-
-Used primarily to move files between EFS storage classes based on access patterns.
-
-```text
-Frequently Accessed
-       ↓
-Infrequently Accessed
-```
-
-> [!danger]
-> Requirement:
-> **"Automatically DELETE files after 30 days"**
->
-> → ✅ S3 Lifecycle
->
-> Do not choose EFS Lifecycle Management for expiration.
-
----
-
-# 🆚 Transfer Family vs DataSync
-
-Do not confuse them.
-
-| Requirement | Service |
-|---|---|
-| Customers/partners upload using SFTP | **Transfer Family** |
-| FTP / FTPS server migration | **Transfer Family** |
-| B2B AS2 transfers | **Transfer Family** |
-| Automated bulk data movement | **DataSync** |
-| On-prem NFS/SMB → AWS storage migration | **DataSync** |
-
-```text
-SFTP / FTPS / FTP
-→ Transfer Family
-
-Bulk data migration / synchronization
-→ DataSync
-```
-
----
-
-# 🧠 Transfer Family in 20 Seconds
-
-```text
-AWS Transfer Family
-│
-├── SFTP → SSH
-├── FTPS → TLS
-├── FTP → Unencrypted
-├── AS2 → B2B
-│
-├── Storage
-│   ├── S3
-│   └── EFS
-│
-└── Managed
-    └── No EC2 SFTP server management
-```
-
-> [!summary] SAA Memory
-> **Managed SFTP → Transfer Family**
->
-> **SFTP + S3 → very common architecture**
->
-> **Delete after N days → S3 Lifecycle**
->
-> **SFTP = SSH**
->
-> **FTPS = TLS**
->
-> **Bulk migration/sync ≠ Transfer Family → DataSync**
+Reviewed: 2026-09-22. Back to [[storage_overview|Storage]].

@@ -1,378 +1,80 @@
-# 🗄️ Amazon FSx
-
-> [!summary] Mental Model
-> **Amazon FSx = Fully Managed File Systems**
->
-> Choose the file system based on the workload:
->
-> **Windows / SMB → FSx for Windows**
->
-> **HPC / ML / S3 processing → FSx for Lustre**
->
-> **NetApp / Multi-protocol → FSx for ONTAP**
->
-> **ZFS / NFS / snapshots & cloning → FSx for OpenZFS**
-
+---
+aliases: [Amazon FSx, FSx, aws_fsx]
+tags: [aws/saa, storage]
 ---
 
-# 🎯 Core Purpose
+# Amazon FSx — Specialized Filesystems
 
-Amazon FSx provides fully managed file systems based on popular file-system technologies.
+## Mental Model
 
-```text
-Amazon FSx
-│
-├── 🪟 FSx for Windows File Server
-├── ⚡ FSx for Lustre
-├── 🔵 FSx for NetApp ONTAP
-└── 📂 FSx for OpenZFS
-```
+**Choose the filesystem technology the application requires, then choose a deployment that meets availability and performance needs.**
 
----
+The FSx family is not one interchangeable filesystem.
 
-# 🪟 FSx for Windows File Server
+## Core
 
-Fully managed **native Windows file system**.
+| Service | Main capability | Strong clue |
+|---|---|---|
+| FSx for Windows File Server | Native Windows files, SMB, AD integration | Windows shares, NTFS permissions, Windows application compatibility |
+| FSx for Lustre | Parallel high-performance filesystem | HPC, simulations and large-scale dataset processing |
+| FSx for NetApp ONTAP | ONTAP data management; NFS, SMB and block protocols | Existing NetApp environment, SnapMirror, multiprotocol requirements |
+| FSx for OpenZFS | Managed ZFS-based NFS with snapshots/cloning | Existing ZFS or applications requiring its capabilities |
 
-Uses:
+### Windows File Server
 
-- Microsoft Windows Server
-- SMB protocol
-- Windows file shares
-- Active Directory integration
+Integrate with supported Active Directory options and preserve required DNS/network access. Select Multi-AZ when automatic failover across AZs is required. A Windows-compatible share is not automatically permissioned correctly: AD identity, share permissions and file ACLs matter.
 
-```text
-Windows EC2
-     ↓
-    SMB
-     ↓
-FSx for Windows
-```
+SMB access is not restricted to Windows clients if another client supports the protocol and authentication. For generic Linux NFS shared files without Windows requirements, compare [[aws_efs|EFS]].
 
-Common use cases:
+### Lustre and S3
 
-- Windows applications
-- Windows file shares
-- Home directories
-- Lift-and-shift Windows workloads
-- Applications requiring SMB
-- Active Directory environments
+Lustre provides fast parallel file access to compute clients. Supported S3 data-repository associations connect object datasets to filesystem processing. Configure import/export behavior and verify needed outputs reach S3; a linked bucket is not proof every new file has already been exported.
 
-> [!tip] Exam Pattern
-> **Windows + SMB + Active Directory**
->
-> → ✅ **FSx for Windows File Server**
+- **Scratch:** temporary processing where failed/lost data can be recreated; no durable replication of the scratch filesystem's data.
+- **Persistent:** replicated storage and failure recovery for longer-lived workloads; still evaluate deployment failure scope and backups.
 
-AWS provides native Windows compatibility and SMB support. :chatgpt-content-reference{index="2"}
+Lustre deployments do not become Multi-AZ simply because they are called persistent. S3 integration and backup capabilities also depend on deployment/version configuration.
 
----
+### ONTAP and OpenZFS
 
-# ⚡ FSx for Lustre
+ONTAP fits NetApp migrations and workloads needing its multiprotocol/data-management model. Common SAA protocols include NFS, SMB and iSCSI; confirm additional protocol support against the selected configuration. Storage tiering does not turn its capacity pool into an ordinary customer S3 bucket that applications browse directly.
 
-A high-performance distributed file system designed for **compute-intensive workloads**.
+OpenZFS fits NFS workloads that benefit from ZFS snapshots, clones and compatible semantics. Choose the supported deployment and performance configuration; do not assume every FSx family has identical resilience options.
 
-Think:
+## Comparisons
 
-```text
-HPC
-ML
-Financial Modeling
-Video Processing
-Large-scale Data Processing
-        ↓
-FSx for Lustre
-```
-
-FSx for Lustre is designed for very high throughput and parallel access across many clients. :chatgpt-content-reference{index="3"}
-
-> [!tip] Exam Pattern
-> **High Performance Computing (HPC)**
-> +
-> **Massive parallel file access**
->
-> → ✅ **FSx for Lustre**
-
----
-
-# 🪣 FSx for Lustre + S3
-
-This is VERY important for SAA.
-
-FSx for Lustre can integrate with **Amazon S3** for high-performance processing of datasets stored in S3.
-
-```text
-Amazon S3
-Long-term Dataset
-      ↓
-FSx for Lustre
-      ↓
-High-Speed File Access
-      ↓
-EC2 / HPC / ML
-```
-
-FSx for Lustre can present S3 data through a high-performance filesystem and can transfer data between the filesystem and S3. :chatgpt-content-reference{index="4"}
-
-> [!danger] Exam Pattern
-> **S3 dataset**
-> +
-> **HPC / ML / high-performance processing**
->
-> → ✅ **FSx for Lustre**
-
----
-
-# 🔵 FSx for NetApp ONTAP
-
-Fully managed storage based on **NetApp ONTAP**.
-
-Supports multiple protocols, including:
-
-- NFS
-- SMB
-- iSCSI
-- NVMe :chatgpt-content-reference{index="5"}
-
-
-```text
-Linux ── NFS ──┐
-Windows ─ SMB ──┼── FSx for ONTAP
-Apps ── iSCSI ──┘
-```
-
-Best when:
-
-- Migrating existing NetApp workloads
-- Need ONTAP features
-- Need multi-protocol access
-- Hybrid/on-prem NetApp environments
-
-> [!tip] Exam Pattern
-> **Existing NetApp ONTAP environment**
->
-> → ✅ **FSx for NetApp ONTAP**
-
-> [!tip]
-> **Need NFS + SMB + iSCSI from the same storage platform**
->
-> → Think **FSx for ONTAP**
-
----
-
-# 📂 FSx for OpenZFS
-
-Fully managed storage built on **OpenZFS**.
-
-Uses the NFS protocol and provides features such as:
-
-- Snapshots
-- Data cloning
-- Compression
-- NFS access
-- ZFS data management capabilities :chatgpt-content-reference{index="6"}
-
-
-```text
-Existing ZFS / Linux File Server
-             ↓
-      FSx for OpenZFS
-```
-
-Best for:
-
-- Migrating ZFS workloads
-- Linux-based file servers
-- Applications requiring ZFS features
-- Low-latency NFS workloads
-
-> [!tip] Exam Pattern
-> **Existing ZFS workload**
->
-> → ✅ **FSx for OpenZFS**
-
----
-
-# 🧠 The Most Important Comparison
-
-| Requirement | Solution |
+| Requirement | Better starting point |
 |---|---|
-| Windows file shares / SMB | **FSx for Windows** |
-| Active Directory + Windows files | **FSx for Windows** |
-| HPC | **FSx for Lustre** |
-| ML / massive parallel processing | **FSx for Lustre** |
-| High-performance processing of S3 data | **FSx for Lustre** |
-| Existing NetApp environment | **FSx for ONTAP** |
-| Multi-protocol NFS + SMB + iSCSI | **FSx for ONTAP** |
-| Existing ZFS environment | **FSx for OpenZFS** |
-| ZFS snapshots / cloning | **FSx for OpenZFS** |
+| Elastic general-purpose shared NFS | EFS |
+| Windows-native SMB and AD | FSx for Windows |
+| Parallel HPC access to S3-backed datasets | FSx for Lustre |
+| NetApp replication and protocol compatibility | FSx for ONTAP |
+| ZFS-native capabilities and NFS | FSx for OpenZFS |
+| Application needs a block device rather than files | EBS, or a specifically required supported block protocol |
 
----
+## Exam Traps
 
-# 🆚 EFS vs FSx
+- **“High performance” alone does not select Lustre.** Look for parallel filesystem/HPC requirements.
+- **“NFS” alone does not select EFS.** ONTAP or OpenZFS may be required by compatibility constraints.
+- **Persistent Lustre is not synonymous with cross-AZ failover.**
+- **S3 integration is not instant synchronization of every change.** Configure and verify data movement.
+- **Snapshots and HA solve different problems.** Replication can preserve availability while a backup preserves an older valid state.
+- **FSx File Gateway and FSx for Windows are different offerings.** A gateway's availability status does not imply the filesystem service is discontinued.
 
-This is important for SAA.
+## Scenario Check
 
-## Amazon EFS
+**A company processes a large S3 dataset using parallel Linux HPC jobs and needs filesystem access.** Evaluate FSx for Lustre with a supported S3 association. Use scratch only if data can be recreated; preserve required outputs before removing temporary resources.
 
-```text
-Linux / NFS
-+
-General Shared Files
-+
-Multiple EC2
-        ↓
-       EFS
-```
+## 30-Second Review
 
-## Amazon FSx
+FSx Windows means SMB and AD; Lustre means parallel HPC and optional S3 integration; ONTAP means NetApp and multiprotocol data management; OpenZFS means ZFS capabilities over NFS. Choose deployment resilience separately. Scratch data must be recreatable. Persistent does not universally mean Multi-AZ. Verify S3 exports, permissions and backups instead of assuming a managed filesystem handles every recovery need.
 
-```text
-Specific File-System Requirement
-        ↓
-Windows / Lustre / ONTAP / ZFS
-        ↓
-        FSx
-```
+## Sources
 
-| Requirement | Think |
-|---|---|
-| General-purpose managed NFS shared storage | EFS |
-| Native Windows / SMB | FSx for Windows |
-| HPC / parallel filesystem | FSx for Lustre |
-| NetApp | FSx for ONTAP |
-| ZFS | FSx for OpenZFS |
+- [FSx for Windows](https://docs.aws.amazon.com/fsx/latest/WindowsGuide/what-is.html)
+- [Lustre deployment options](https://docs.aws.amazon.com/fsx/latest/LustreGuide/using-fsx-lustre.html)
+- [Lustre S3 associations](https://docs.aws.amazon.com/fsx/latest/LustreGuide/create-dra-linked-data-repo.html)
+- [FSx for ONTAP](https://docs.aws.amazon.com/fsx/latest/ONTAPGuide/what-is-fsx-ontap.html)
+- [FSx for OpenZFS](https://docs.aws.amazon.com/fsx/latest/OpenZFSGuide/what-is-fsx.html)
 
-> [!danger] Exam Trap
-> **Multiple Linux EC2 instances need a simple shared NFS filesystem**
->
-> → EFS
->
-> **High-performance parallel processing / HPC**
->
-> → FSx for Lustre
-
----
-
-# 🆚 EBS vs EFS vs FSx vs S3
-
-| Storage | Mental Model |
-|---|---|
-| **EBS** | EC2 block disk |
-| **EFS** | Shared NFS filesystem |
-| **FSx** | Specialized managed filesystem |
-| **S3** | Object storage |
-
-```text
-EC2 Disk
-→ EBS
-
-Shared Linux Files
-→ EFS
-
-Windows / HPC / NetApp / ZFS
-→ FSx
-
-Objects
-→ S3
-```
-
----
-
-# ⚠️ High-Value Exam Traps
-
-> [!danger] Trap 1
-> Windows applications require a shared filesystem using **SMB**.
->
-> ✅ FSx for Windows File Server
-
----
-
-> [!danger] Trap 2
-> Windows file shares must integrate with **Active Directory**.
->
-> ✅ FSx for Windows File Server
-
----
-
-> [!danger] Trap 3
-> Application performs **HPC or massively parallel processing**.
->
-> ✅ FSx for Lustre
-
----
-
-> [!danger] Trap 4
-> Large dataset is stored in **S3** and must be processed using a high-performance filesystem.
->
-> ✅ FSx for Lustre
-
----
-
-> [!danger] Trap 5
-> Company wants to migrate existing **NetApp ONTAP** workloads.
->
-> ✅ FSx for NetApp ONTAP
-
----
-
-> [!danger] Trap 6
-> Application requires **NFS + SMB + iSCSI**.
->
-> ✅ FSx for NetApp ONTAP
-
----
-
-> [!danger] Trap 7
-> Company wants to migrate existing **ZFS** workloads.
->
-> ✅ FSx for OpenZFS
-
----
-
-> [!danger] Trap 8
-> Multiple Linux EC2 instances simply need shared NFS storage.
->
-> ❌ Don't automatically choose FSx.
->
-> ✅ Think **EFS**
-
----
-
-# ⚡ FSx in 20 Seconds
-
-```text
-Amazon FSx
-│
-├── 🪟 Windows
-│   ├── SMB
-│   └── Active Directory
-│
-├── ⚡ Lustre
-│   ├── HPC
-│   ├── ML
-│   ├── Parallel Processing
-│   └── S3 Integration
-│
-├── 🔵 ONTAP
-│   ├── NetApp
-│   └── NFS + SMB + iSCSI
-│
-└── 📂 OpenZFS
-    ├── ZFS
-    ├── NFS
-    ├── Snapshots
-    └── Cloning
-```
-
-> [!summary] SAA Memory Trick
-> **Windows → FSx Windows**
->
-> **HPC → Lustre**
->
-> **S3 + HPC → Lustre**
->
-> **NetApp → ONTAP**
->
-> **ZFS → OpenZFS**
->
-> **Generic shared NFS → EFS**
+Reviewed: 2026-09-22. Filename retained for existing vault compatibility; the service name is **FSx**. Back to [[storage_overview|Storage]].
