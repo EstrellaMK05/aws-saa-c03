@@ -1,6 +1,52 @@
-# 🔐 AWS Identity and Access Management (IAM)
+---
+aliases:
+  - AWS IAM
+  - IAM
+  - Identity and Access Management
+tags:
+  - aws/saa
+  - security
+---
 
-> [!summary] Mental Model
+# AWS Identity and Access Management (IAM)
+
+## 📑 Table of Contents
+
+1. [Mental Model](#1-mental-model)
+2. [IAM Basics](#2-iam-basics)
+3. [IAM Identities](#3-iam-identities)
+4. [IAM Roles](#4-iam-roles)
+5. [IAM Policies](#5-iam-policies)
+6. [Identity-Based vs Resource-Based Policies](#6-identity-based-vs-resource-based-policies)
+7. [Managed vs Inline Policies](#7-managed-vs-inline-policies)
+8. [Policy Evaluation](#8-policy-evaluation)
+9. [Permissions Boundaries](#9-permissions-boundaries)
+10. [AWS Organizations SCPs](#10-aws-organizations-scps)
+11. [AWS STS](#11-aws-sts)
+12. [Trust Policy vs Permissions Policy](#12-trust-policy-vs-permissions-policy)
+13. [Cross-Account Access](#13-cross-account-access)
+14. [Federation](#14-federation)
+15. [IAM Identity Center](#15-iam-identity-center)
+16. [Permission Sets](#16-permission-sets)
+17. [ABAC](#17-abac)
+18. [IAM Access Analyzer](#18-iam-access-analyzer)
+19. [IAM Conditions](#19-iam-conditions)
+20. [IAM Roles for AWS Compute](#20-iam-roles-for-aws-compute)
+21. [iam:PassRole](#21-iampassrole)
+22. [MFA](#22-mfa)
+23. [Directory Service Relationship](#23-directory-service-relationship)
+24. [Decision Map](#24-decision-map)
+25. [High-Value Exam Traps](#25-high-value-exam-traps)
+26. [Scenario Check](#26-scenario-check)
+27. [IAM in 30 Seconds](#27-iam-in-30-seconds)
+
+---
+
+# 1. Mental Model
+
+> [!TIP]
+> 🧠 **Mental Model**
+>
 > **IAM = WHO can do WHAT on WHICH AWS resource, under WHICH conditions.**
 >
 > ```text
@@ -14,52 +60,99 @@
 >    ↓
 > AWS Resource
 > ```
+
+The core security principle is:
+
+> **Least Privilege**
+
+Grant only the permissions required to perform the task.
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
 >
-> 🎯 Core principle: **Least Privilege**
+> ```text
+> WHO ARE YOU?
+> → Authentication
+>
+> WHAT CAN YOU DO?
+> → Authorization
+>
+> WHAT DEFINES PERMISSIONS?
+> → IAM Policies
+> ```
 
 ---
 
-# 🌎 IAM Basics
+# 2. IAM Basics
 
-AWS IAM is a **global service** used to securely control access to AWS resources.
+AWS Identity and Access Management is used to securely control access to AWS resources.
 
-IAM controls:
+IAM controls two fundamental concepts:
 
-- **Authentication** → Who are you?
-- **Authorization** → What are you allowed to do?
+| Concept            | Question         |
+| ------------------ | ---------------- |
+| **Authentication** | Who are you?     |
+| **Authorization**  | What can you do? |
 
-> [!important]
-> IAM is **global**, not regional.
+```text
+Login / Credentials
+       ↓
+Authentication
+       ↓
+Policies Evaluated
+       ↓
+Authorization
+```
+
+> [!IMPORTANT]
+> **IAM is a global AWS service**, not a regional service.
 
 ---
 
-# 👤 IAM Identities
+# 3. IAM Identities
 
-## 👑 Root User
+The fundamental IAM concepts are:
 
-The root user is created when the AWS account is created.
+```text
+Root User
 
-It has unrestricted access to the account.
+IAM User
+
+IAM Group
+
+IAM Role
+```
+
+---
+
+## Root User
+
+The root user is created when the AWS account is created and has unrestricted account access.
 
 Best practices:
 
 - Enable MFA
-- Do not use for daily tasks
-- Do not create/use root access keys
-- Use IAM identities for normal administration
+- Do not use root for daily tasks
+- Avoid root access keys
+- Use appropriate IAM/workforce identities for normal administration
 
-> [!danger] Exam
-> **Root User = maximum privileges**
+> [!CAUTION]
+> ⚠️ **Exam Trap**
 >
-> Protect it with **MFA** and avoid using it for everyday operations.
+> ```text
+> Root User
+> → Maximum Account Privileges
+> ```
+>
+> Protect it with **MFA** and avoid everyday use.
 
 ---
 
-## 👤 IAM Users
+## IAM Users
 
-Represents an individual identity inside an AWS account.
+An IAM user represents an identity inside an AWS account.
 
-Can have:
+It can have:
 
 - Console password
 - Access keys
@@ -70,6 +163,7 @@ Can have:
 IAM User
    │
    ├── Console Password
+   │
    └── Access Key + Secret Key
 ```
 
@@ -79,18 +173,18 @@ A newly created IAM user has:
 NO permissions by default
 ```
 
-> [!warning]
+> [!WARNING]
 > For workforce/human access across AWS accounts, prefer:
 >
 > **IAM Identity Center**
 >
-> rather than creating many IAM users.
+> rather than creating large numbers of individual IAM users.
 
 ---
 
-# 👥 IAM Groups
+## IAM Groups
 
-A group is a collection of IAM users.
+An IAM group is a collection of IAM users.
 
 ```text
 Developers Group
@@ -100,43 +194,63 @@ Developers Group
        └── Charlie
 ```
 
-Attach policies to the group:
+Policies can be attached to the group:
 
 ```text
-Developers
-    ↓
-Policy
-    ↓
+Developers Group
+       ↓
+IAM Policy
+       ↓
 Permissions inherited by users
 ```
 
-> [!important]
-> Groups:
+> [!IMPORTANT]
+> IAM Groups:
 >
 > - Contain **users**
 > - Cannot contain other groups
-> - Are **not identities**
 > - Cannot be assumed
 > - Cannot log in
 
 ---
 
-# 🎭 IAM Roles
+## User vs Group vs Role
 
-An IAM Role is an identity with permissions but **without long-term credentials**.
+| IAM Concept  | Purpose                                        |
+| ------------ | ---------------------------------------------- |
+| 👤 **User**  | Individual IAM identity                        |
+| 👥 **Group** | Collection of IAM users                        |
+| 🎭 **Role**  | Assumable identity using temporary credentials |
+| 👑 **Root**  | AWS account root identity                      |
 
-A principal assumes the role and receives **temporary credentials**.
+> [!NOTE]
+> 🧠 **Memory**
+>
+> ```text
+> USER
+> → WHO you are
+>
+> GROUP
+> → ORGANIZE users
+>
+> ROLE
+> → WHO you temporarily become
+> ```
 
-```text
-Principal
-   ↓
-AssumeRole
-   ↓
-IAM Role
-   ↓
-Temporary Credentials
-   ↓
-AWS Resource
+---
+
+# 4. IAM Roles
+
+An IAM role is an identity with permissions but without the same long-term credentials associated with IAM users.
+
+A principal assumes a role and receives temporary credentials.
+
+```mermaid
+flowchart LR
+    A["Principal"] --> B["AssumeRole"]
+    B --> C["IAM Role"]
+    C --> D["Temporary Credentials"]
+    D --> E["AWS Resources"]
 ```
 
 Roles are commonly used by:
@@ -145,11 +259,16 @@ Roles are commonly used by:
 - Lambda
 - ECS
 - AWS services
-- Cross-account users
+- Cross-account principals
 - Federated users
 
-> [!tip] Exam
-> Application running on AWS needs AWS credentials?
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Application running on AWS
+> needs AWS credentials
+> ```
 >
 > ❌ Hard-code access keys
 >
@@ -157,31 +276,7 @@ Roles are commonly used by:
 
 ---
 
-# 🆚 User vs Group vs Role
-
-| IAM Entity | Purpose |
-|---|---|
-| 👤 User | Individual identity |
-| 👥 Group | Collection of users |
-| 🎭 Role | Temporary assumed identity |
-| 👑 Root | Full AWS account identity |
-
-### 🧠 Memory Trick
-
-```text
-User
-→ WHO you are
-
-Group
-→ ORGANIZE users
-
-Role
-→ WHO you temporarily become
-```
-
----
-
-# 🤖 Service Roles
+## Service Roles
 
 AWS services can assume IAM roles to perform actions on your behalf.
 
@@ -195,7 +290,7 @@ Execution Role
 S3 / DynamoDB / CloudWatch
 ```
 
-Example:
+Another example:
 
 ```text
 EC2
@@ -205,16 +300,15 @@ IAM Role
 S3
 ```
 
-> [!tip]
-> **Compute service needs AWS permissions**
->
-> → IAM Role
+Think:
+
+> **AWS compute/service needs AWS permissions → IAM Role**
 
 ---
 
-# 🔗 Service-Linked Roles
+## Service-Linked Roles
 
-A **Service-Linked Role** is predefined for a specific AWS service.
+A **Service-Linked Role** is associated with a specific AWS service.
 
 ```text
 AWS Service
@@ -224,15 +318,15 @@ Service-Linked Role
 Actions required by service
 ```
 
-AWS defines the permissions needed by that service.
+AWS defines the permissions required by the service.
 
 ---
 
-# 📜 IAM Policies
+# 5. IAM Policies
 
-Policies are JSON documents that define permissions.
+IAM policies are JSON documents that define permissions.
 
-Basic structure:
+Basic example:
 
 ```json
 {
@@ -244,17 +338,33 @@ Basic structure:
 
 Important elements:
 
-| Element | Meaning |
-|---|---|
-| `Effect` | Allow or Deny |
-| `Action` | AWS API operation |
-| `Resource` | Target resource |
-| `Condition` | Optional restrictions |
-| `Principal` | Who receives access in resource-based policies |
+| Element     | Meaning                                                   |
+| ----------- | --------------------------------------------------------- |
+| `Effect`    | Allow or Deny                                             |
+| `Action`    | AWS API operation                                         |
+| `Resource`  | Target resource                                           |
+| `Condition` | Optional restrictions                                     |
+| `Principal` | Who receives access in applicable resource-based policies |
+
+Think:
+
+```text
+POLICY
+├── Effect
+├── Action
+├── Resource
+└── Condition
+```
 
 ---
 
-# 👤 Identity-Based Policies
+# 6. Identity-Based vs Resource-Based Policies
+
+This distinction is extremely important.
+
+---
+
+## Identity-Based Policy
 
 Attached to:
 
@@ -262,7 +372,7 @@ Attached to:
 - Groups
 - Roles
 
-They answer:
+It answers:
 
 > **What can this identity do?**
 
@@ -286,19 +396,19 @@ Example:
 
 ---
 
-# 🪣 Resource-Based Policies
+## Resource-Based Policy
 
-Attached directly to a resource.
+Attached directly to a supported resource.
 
 Examples:
 
 - S3 Bucket Policy
 - SQS Queue Policy
-- KMS Key Policy
 - SNS Topic Policy
+- KMS Key Policy
 - Lambda Resource Policy
 
-They answer:
+It answers:
 
 > **Who can access this resource?**
 
@@ -307,7 +417,7 @@ Principal
     ↓
 Resource Policy
     ↓
-S3 Bucket
+AWS Resource
 ```
 
 Example:
@@ -323,37 +433,40 @@ Example:
 }
 ```
 
-> [!tip] Exam
-> Resource-based policies are especially important for:
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> **Cross-account access**
+> Resource-based policies are particularly important in many:
+>
+> **Cross-account access** scenarios.
 
 ---
 
-# 🆚 Identity vs Resource Policy
+## Quick Comparison
 
-| Policy | Attached To | Main Question |
-|---|---|---|
-| Identity-Based | User / Group / Role | What can this identity do? |
-| Resource-Based | Resource | Who can access this resource? |
+| Policy             | Attached To         | Main Question                 |
+| ------------------ | ------------------- | ----------------------------- |
+| **Identity-Based** | User / Group / Role | What can this identity do?    |
+| **Resource-Based** | Resource            | Who can access this resource? |
 
-```text
-Identity Policy
-     ↓
-"What can YOU do?"
-
-Resource Policy
-     ↓
-"Who can access ME?"
-```
+> [!NOTE]
+> 🧠 **Memory**
+>
+> ```text
+> IDENTITY POLICY
+> → "What can YOU do?"
+>
+> RESOURCE POLICY
+> → "Who can access ME?"
+> ```
 
 ---
 
-# 📦 Managed vs Inline Policies
+# 7. Managed vs Inline Policies
 
 ## Managed Policy
 
-Reusable policy that can be attached to multiple identities.
+A managed policy is reusable and can be attached to multiple identities.
 
 ```text
 Managed Policy
@@ -364,36 +477,144 @@ Managed Policy
 
 Types include:
 
-- AWS managed policies
-- Customer managed policies
+```text
+AWS Managed Policy
+
+Customer Managed Policy
+```
+
+Think:
+
+> **Managed Policy = REUSABLE**
 
 ---
 
 ## Inline Policy
 
-Embedded directly into **one identity**.
+An inline policy is embedded directly into one identity.
 
 ```text
 Role
  └── Inline Policy
 ```
 
-Strong one-to-one relationship.
+Think:
 
-> [!tip]
-> **Managed Policy**
-> → reusable
->
-> **Inline Policy**
-> → embedded in one identity
+> **Inline Policy = ONE-TO-ONE**
 
 ---
 
-# 🚧 Permissions Boundary
+## Comparison
 
-A **Permissions Boundary** defines the **maximum permissions** an IAM user or role can receive.
+| Type           | Mental Model             |
+| -------------- | ------------------------ |
+| Managed Policy | Reusable                 |
+| Inline Policy  | Embedded in one identity |
 
-It does **NOT grant permissions** by itself.
+---
+
+# 8. Policy Evaluation
+
+AWS evaluates applicable permissions before allowing a request.
+
+Simplified mental model:
+
+```mermaid
+flowchart TD
+    A["Request"] --> B{"Explicit Deny?"}
+
+    B -->|"Yes"| C["DENY"]
+    B -->|"No"| D{"Explicit Allow?"}
+
+    D -->|"Yes"| E["ALLOW"]
+    D -->|"No"| F["IMPLICIT DENY"]
+```
+
+> [!IMPORTANT]
+> 🎯 **Golden Rule**
+>
+> **Explicit DENY wins.**
+
+Basic memory:
+
+```text
+1. Explicit Deny
+       ↓
+2. Explicit Allow
+       ↓
+3. No Allow
+       ↓
+   Implicit Deny
+```
+
+Example:
+
+```text
+Policy A
+→ Allow s3:*
+
+Policy B
+→ Deny s3:DeleteObject
+```
+
+Result:
+
+```text
+GetObject       ✅
+PutObject       ✅
+DeleteObject    ❌
+```
+
+---
+
+## Implicit Deny
+
+AWS permissions are denied by default.
+
+```text
+No Allow
+   ↓
+DENY
+```
+
+---
+
+## Explicit Deny
+
+A policy explicitly contains:
+
+```json
+{
+  "Effect": "Deny"
+}
+```
+
+An applicable explicit deny overrides an allow.
+
+```text
+Allow
++
+Explicit Deny
+      ↓
+     DENY
+```
+
+> [!CAUTION]
+> ⚠️ **Exam Trap**
+>
+> ```text
+> ALLOW + EXPLICIT DENY
+> → DENY
+> ```
+
+---
+
+# 9. Permissions Boundaries
+
+A **Permissions Boundary** defines the maximum permissions available to an IAM user or role.
+
+> [!IMPORTANT]
+> A permissions boundary **does NOT grant permissions by itself**.
 
 Example:
 
@@ -402,25 +623,21 @@ Identity Policy
 Allow:
 S3 + DynamoDB + EC2
 
+          ∩
+
 Permissions Boundary
-Allow maximum:
+Maximum:
 S3 + DynamoDB
 
-Effective Permissions
-        ↓
+          ↓
+
+Effective:
 S3 + DynamoDB
 ```
 
-EC2 is not allowed because it exceeds the boundary.
+EC2 permissions exceed the boundary and therefore are not available.
 
-> [!danger] VERY IMPORTANT EXAM TRAP
-> A Permissions Boundary:
->
-> ❌ Does NOT grant permissions
->
-> ✅ Defines the **maximum possible permissions**
-
-### Mental Model
+Mental model:
 
 ```text
 Identity Policy
@@ -430,121 +647,57 @@ Permissions Boundary
 Effective Permissions
 ```
 
----
+> [!CAUTION]
+> ⚠️ **VERY IMPORTANT EXAM TRAP**
+>
+> ```text
+> Permissions Boundary
+> ≠ GRANT
+>
+> Permissions Boundary
+> = MAXIMUM
+> ```
 
-# ⚖️ IAM Policy Evaluation
-
-AWS evaluates permissions before allowing a request.
-
-Basic mental model:
-
-```text
-Request
-   ↓
-Explicit Deny?
-   │
-   ├── YES → ❌ DENY
-   │
-   └── NO
-        ↓
-Explicit Allow?
-   │
-   ├── YES → ✅ ALLOW
-   │
-   └── NO → ❌ IMPLICIT DENY
-```
-
-### Golden Rule
-
-> [!danger]
-> **Explicit DENY always wins.**
-
-Priority:
-
-```text
-1️⃣ Explicit Deny
-       ↓
-2️⃣ Explicit Allow
-       ↓
-3️⃣ Implicit Deny
-```
-
-Example:
-
-```text
-Policy A → Allow s3:*
-Policy B → Deny s3:DeleteObject
-
-Result:
-
-GetObject     ✅
-PutObject     ✅
-DeleteObject  ❌
-```
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Developers may create roles
+> BUT
+> must never exceed a defined permission ceiling
+> ```
+>
+> → **Permissions Boundary**
 
 ---
 
-# 🚫 Implicit vs Explicit Deny
+# 10. AWS Organizations SCPs
 
-## Implicit Deny
-
-No policy grants permission.
-
-```text
-No Allow
-   ↓
-DENY
-```
-
-AWS permissions are denied by default.
-
----
-
-## Explicit Deny
-
-A policy explicitly contains:
-
-```json
-"Effect": "Deny"
-```
-
-This overrides an Allow.
-
-```text
-Allow + Explicit Deny
-        ↓
-       DENY
-```
-
----
-
-# 🏢 AWS Organizations SCP
-
-A **Service Control Policy (SCP)** defines the maximum available permissions for accounts or OUs in AWS Organizations.
+A **Service Control Policy (SCP)** defines the maximum available permissions for applicable accounts/OUs in AWS Organizations.
 
 It does **not grant permissions**.
 
 ```text
 SCP
  ↓
-Account Maximum Permissions
+Account / OU Permission Guardrail
  ↓
-IAM Policies
+IAM Permissions
  ↓
-User / Role
+Principal
 ```
 
-> [!warning] Don't Confuse
-> **IAM Policy**
-> → Grants permissions to identities
->
-> **Permissions Boundary**
-> → Maximum permissions for a user/role
->
-> **SCP**
-> → Maximum permissions for accounts/OUs
+---
 
-### Exam Mental Model
+## IAM Policy vs Boundary vs SCP
+
+| Mechanism            | Purpose                                        |
+| -------------------- | ---------------------------------------------- |
+| IAM Policy           | Defines permissions for identities/resources   |
+| Permissions Boundary | Maximum permissions for a user/role            |
+| SCP                  | Maximum available permissions for accounts/OUs |
+
+Simplified mental model:
 
 ```text
 SCP
@@ -552,25 +705,34 @@ SCP
 Permissions Boundary
  ∩
 IAM Permissions
-        ↓
+ ↓
 Effective Permissions
 ```
 
-And:
+> [!IMPORTANT]
+> 🧠 **SAA Memory**
+>
+> ```text
+> IDENTITY POLICY
+> → PERMISSIONS
+>
+> BOUNDARY
+> → MAX FOR IDENTITY
+>
+> SCP
+> → MAX FOR ACCOUNT / OU
+> ```
 
-```text
-Explicit Deny
-      ↓
-Always wins
-```
+> [!CAUTION]
+> Neither a permissions boundary nor an SCP grants permissions by itself.
 
 ---
 
-# 🔑 AWS Security Token Service (STS)
+# 11. AWS STS
 
-AWS STS provides **temporary security credentials**.
+**AWS Security Token Service (STS)** provides temporary security credentials.
 
-Temporary credentials contain:
+Temporary credentials include:
 
 ```text
 Access Key ID
@@ -580,197 +742,61 @@ Secret Access Key
 Session Token
 ```
 
-Common use cases:
+Common uses:
 
-- Assume IAM Roles
+- Assume IAM roles
 - Cross-account access
 - Federation
 - Temporary privileged access
 
----
-
-# 🎭 STS AssumeRole
-
-`AssumeRole` allows a principal to temporarily assume an IAM Role.
-
-```text
-User / Role
-     ↓
-sts:AssumeRole
-     ↓
-Target IAM Role
-     ↓
-Temporary Credentials
-```
-
-Common scenario:
-
-```text
-Account A
-User
- ↓
-AssumeRole
- ↓
-Account B
-Role
- ↓
-Resources
-```
-
-> [!tip] Exam
-> **Cross-account access without sharing credentials**
+> [!IMPORTANT]
+> 🧠 **Memory**
 >
-> → IAM Role + STS `AssumeRole`
+> ```text
+> STS
+> → TEMPORARY CREDENTIALS
+> ```
 
 ---
 
-# 🤝 Role Trust Policy
+## AssumeRole
 
-An IAM Role has a **Trust Policy** defining **who can assume the role**.
+`AssumeRole` allows a principal to temporarily assume an IAM role.
 
-```text
-Principal
-   ↓
-Trust Policy
-   ↓
-IAM Role
+```mermaid
+flowchart LR
+    A["User / Role"] --> B["STS AssumeRole"]
+    B --> C["IAM Role"]
+    C --> D["Temporary Credentials"]
 ```
 
-Think of two questions:
+Think:
 
-```text
-Trust Policy
-→ WHO can assume this role?
-
-Permissions Policy
-→ WHAT can this role do?
-```
-
-> [!danger] Exam Trap
-> Giving a role S3 permissions does NOT automatically allow another account to assume it.
->
-> The **trust relationship** must allow the principal.
+> **AssumeRole = YOU temporarily become the role**
 
 ---
 
-# 🔐 MFA
+## AssumeRoleWithSAML
 
-Multi-Factor Authentication adds another authentication factor.
-
-Strongly recommended for:
-
-- Root user
-- Administrators
-- Privileged users
-
-```text
-Password
-   +
-MFA Device
-   ↓
-Authentication
-```
-
-STS can also require MFA when assuming roles.
-
----
-
-# 🌐 Federation
-
-Federation allows users from an external identity system to access AWS without creating permanent IAM users for everyone.
-
-Examples:
-
-- Corporate Active Directory
-- SAML 2.0
-- OpenID Connect
-- External Identity Providers
-
-```text
-Corporate Identity
-       ↓
-Identity Provider
-       ↓
-Federation
-       ↓
-IAM Role
-       ↓
-Temporary AWS Credentials
-```
-
-## 🏢 SAML 2.0 Federation + Active Directory
-
-Used when a company wants employees to access AWS using their **existing corporate credentials**, commonly stored in **Microsoft Active Directory**.
-
-```text
-Employee
-   ↓
-On-Premises Active Directory
-   ↓
-AD FS (Identity Provider)
-   ↓
-SAML 2.0 Assertion
-   ↓
-AWS STS
-   ↓
-Temporary Credentials
-   ↓
-IAM Role
-   ↓
-AWS Resources
-```
-
-### 🔑 Key Components
-
-- **Active Directory** → Stores corporate identities and credentials
-- **AD FS** → Acts as the Identity Provider (IdP)
-- **SAML 2.0** → Federation protocol
-- **AWS STS** → Provides temporary AWS credentials
-- **IAM Role** → Defines AWS permissions
-
-> [!tip] Exam Pattern
-> **On-premises Active Directory + existing employee credentials + AWS access**
->
-> → ✅ **SAML 2.0 Federation**
->
-> If **AD FS** appears in the answers, it is a strong indicator.
-
-> [!warning] Don't Confuse
-> **SAML Federation**
-> → Corporate/workforce identities (e.g., Active Directory)
->
-> **Web Identity Federation / OIDC**
-> → Web/mobile identities and external identity providers
->
-> **IAM Users**
-> → AWS identities with long-term credentials
----
-
-# 🏢 AssumeRoleWithSAML
-
-Used when users authenticate through a **SAML 2.0 identity provider**.
+Used with a SAML 2.0 identity provider.
 
 ```text
 Corporate Directory
-        ↓
-SAML IdP
-        ↓
+       ↓
+SAML Identity Provider
+       ↓
 AssumeRoleWithSAML
-        ↓
+       ↓
 Temporary AWS Credentials
 ```
 
-Typical scenario:
-
-> Employees need AWS access using existing corporate identities.
-
 ---
 
-# 🌐 AssumeRoleWithWebIdentity
+## AssumeRoleWithWebIdentity
 
-Used with web identity providers / OIDC.
+Used with web identity / OIDC providers.
 
-Examples:
+Examples can include:
 
 - Amazon Cognito
 - Google
@@ -783,48 +809,224 @@ Web Identity Provider
  ↓
 AssumeRoleWithWebIdentity
  ↓
-Temporary AWS Credentials
-```
-
----
-
-# 🎟️ GetSessionToken
-
-Returns temporary credentials for an IAM user.
-
-Common use:
-
-**MFA-protected programmatic API access**
-
-```text
-IAM User
-   +
-MFA
-   ↓
-GetSessionToken
-   ↓
 Temporary Credentials
 ```
 
 ---
 
-# 🏢 IAM Identity Center
+## GetSessionToken
 
-AWS IAM Identity Center is the modern solution for managing **workforce access** to AWS accounts and applications.
+Returns temporary credentials for an IAM user.
 
-Previously:
-
-**AWS Single Sign-On (AWS SSO)**
+A notable use case from this note is:
 
 ```text
-Corporate Users
-       ↓
-IAM Identity Center
-       ↓
- ┌─────┼─────┐
- ▼     ▼     ▼
-AWS   AWS   AWS
-Acct  Acct  Acct
+IAM User
++
+MFA
+ ↓
+GetSessionToken
+ ↓
+Temporary Credentials
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> IAM User
+> +
+> MFA-Protected Temporary API Credentials
+> ```
+>
+> → **STS GetSessionToken**
+
+---
+
+# 12. Trust Policy vs Permissions Policy
+
+An IAM role has a **trust policy** that controls who can assume it.
+
+```text
+Principal
+   ↓
+Trust Policy
+   ↓
+IAM Role
+```
+
+Once assumed, permissions policies determine what the role can do.
+
+```text
+TRUST POLICY
+→ WHO can assume the role?
+
+PERMISSIONS POLICY
+→ WHAT can the role do?
+```
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
+>
+> ```text
+> WHO CAN BECOME THE ROLE?
+> → TRUST POLICY
+>
+> WHAT CAN THE ROLE DO?
+> → PERMISSIONS POLICY
+> ```
+
+> [!CAUTION]
+> Giving a role S3 permissions does **not** automatically allow another account or principal to assume it.
+>
+> The trust relationship must also permit the appropriate principal.
+
+---
+
+# 13. Cross-Account Access
+
+A classic cross-account pattern is:
+
+```mermaid
+flowchart LR
+    A["Account A Principal"] --> B["STS AssumeRole"]
+    B --> C["Role in Account B"]
+    C --> D["Temporary Credentials"]
+    D --> E["Resources in Account B"]
+```
+
+Think:
+
+```text
+Account A
+   ↓
+AssumeRole
+   ↓
+Role in Account B
+   ↓
+Temporary Credentials
+   ↓
+Resources
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Cross-Account Access
+> +
+> No Shared Long-Term Credentials
+> ```
+>
+> → **IAM Role + STS AssumeRole**
+
+---
+
+# 14. Federation
+
+Federation allows external identities to access AWS without creating permanent IAM users for every person.
+
+Examples:
+
+- Corporate Active Directory
+- SAML 2.0
+- OpenID Connect
+- External identity providers
+
+Conceptually:
+
+```mermaid
+flowchart LR
+    A["External Identity"] --> B["Identity Provider"]
+    B --> C["Federation"]
+    C --> D["IAM Role"]
+    D --> E["Temporary AWS Credentials"]
+```
+
+---
+
+## SAML 2.0 Federation + Active Directory
+
+A common enterprise architecture:
+
+```text
+Employee
+   ↓
+On-Premises Active Directory
+   ↓
+AD FS / SAML IdP
+   ↓
+SAML Assertion
+   ↓
+AWS STS
+   ↓
+Temporary Credentials
+   ↓
+IAM Role
+   ↓
+AWS Resources
+```
+
+Key components:
+
+| Component        | Purpose                   |
+| ---------------- | ------------------------- |
+| Active Directory | Corporate identities      |
+| AD FS / IdP      | Identity provider         |
+| SAML 2.0         | Federation protocol       |
+| AWS STS          | Temporary AWS credentials |
+| IAM Role         | AWS permissions           |
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Existing Corporate Identity
+> +
+> SAML
+> +
+> AWS Access
+> ```
+>
+> → **SAML Federation + IAM Role + STS**
+
+---
+
+## SAML vs OIDC
+
+```text
+SAML
+→ Corporate / workforce federation
+
+OIDC / Web Identity
+→ Web/mobile identity federation
+```
+
+> [!WARNING]
+> Do not automatically create IAM users for every external corporate employee.
+
+---
+
+# 15. IAM Identity Center
+
+AWS IAM Identity Center is designed for centralized **workforce access** to AWS accounts and applications.
+
+Previously known as:
+
+```text
+AWS Single Sign-On
+AWS SSO
+```
+
+Architecture:
+
+```mermaid
+flowchart TD
+    A["Corporate Users"] --> B["IAM Identity Center"]
+
+    B --> C["AWS Account A"]
+    B --> D["AWS Account B"]
+    B --> E["AWS Account C"]
 ```
 
 Identity sources can include:
@@ -833,61 +1035,86 @@ Identity sources can include:
 - Active Directory
 - External Identity Provider
 
-> [!tip] Exam
-> Company has many employees and multiple AWS accounts?
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> ✅ **IAM Identity Center**
+> ```text
+> Many Employees
+> +
+> Multiple AWS Accounts
+> +
+> Centralized Workforce Access
+> ```
+>
+> → **IAM Identity Center**
 
 ---
 
-# 🎫 Permission Sets
+# 16. Permission Sets
 
 IAM Identity Center uses **Permission Sets** to define access.
 
-Example:
+Conceptually:
 
 ```text
 Developer Group
-       ↓
+      ↓
 Permission Set
-"ReadOnly"
-       ↓
+   "ReadOnly"
+      ↓
 AWS Account
-       ↓
-IAM Role created in account
+      ↓
+IAM Role Provisioned in Account
 ```
 
 Think:
 
+> **Permission Set = Permission Template for AWS Account Access**
+
 ```text
 Permission Set
       ↓
-Template for permissions
+Permissions Definition
       ↓
-Role in target AWS account
+Role in Target AWS Account
 ```
+
+> [!IMPORTANT]
+> Don't confuse:
+>
+> ```text
+> IAM POLICY
+> → Permissions document
+>
+> PERMISSION SET
+> → Identity Center access definition used for account assignments
+> ```
 
 ---
 
-# 🏷️ ABAC
+# 17. ABAC
 
-**Attribute-Based Access Control** uses attributes/tags to determine access.
+**Attribute-Based Access Control (ABAC)** uses attributes/tags to determine access.
 
 Examples:
 
 ```text
 Department = Finance
+
 Project = Unicorn
+
 Environment = Dev
 ```
 
-Instead of creating many policies:
+Example:
 
 ```text
-Principal Tag:
+Principal Tag
 Project = Unicorn
 
-Resource Tag:
+       matches
+
+Resource Tag
 Project = Unicorn
 
         ↓
@@ -895,22 +1122,34 @@ Project = Unicorn
 Access Allowed
 ```
 
-> [!tip]
-> **RBAC**
-> → permissions based on roles
->
-> **ABAC**
-> → permissions based on attributes/tags
+Compare:
 
-Useful at scale when many resources and identities exist.
+```text
+RBAC
+→ permissions based on roles
+
+ABAC
+→ permissions based on attributes/tags
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Large Number of Resources
+> +
+> Access Based on Project / Department / Environment Tags
+> ```
+>
+> → **ABAC**
 
 ---
 
-# 🔎 IAM Access Analyzer
+# 18. IAM Access Analyzer
 
-IAM Access Analyzer helps identify resources that are accessible by external principals and validates IAM policies.
+IAM Access Analyzer helps identify resources accessible by external principals and can help validate IAM policies.
 
-Can help detect unintended access involving resources such as:
+Examples from this note include:
 
 - S3 buckets
 - KMS keys
@@ -918,6 +1157,8 @@ Can help detect unintended access involving resources such as:
 - IAM roles
 - Lambda functions
 - Secrets Manager secrets
+
+Conceptually:
 
 ```text
 Resource Policy
@@ -929,30 +1170,33 @@ External Access?
 Finding
 ```
 
-It also provides policy validation:
+It can also assist with policy validation:
 
 ```text
 IAM Policy
     ↓
 Access Analyzer
     ↓
-Errors
-Warnings
-Suggestions
+Errors / Warnings / Suggestions
 ```
 
-> [!tip] Exam
-> Need to identify resources shared with an **external account or public principal**?
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> ✅ **IAM Access Analyzer**
+> ```text
+> Find Resources Accessible by
+> External Account / Public Principal
+> ```
+>
+> → **IAM Access Analyzer**
 
 ---
 
-# 🏷️ Policy Conditions
+# 19. IAM Conditions
 
 Conditions restrict when a permission applies.
 
-Examples:
+Examples include:
 
 - Source IP
 - MFA
@@ -964,9 +1208,11 @@ Examples:
 Example:
 
 ```json
-"Condition": {
-  "Bool": {
-    "aws:MultiFactorAuthPresent": "true"
+{
+  "Condition": {
+    "Bool": {
+      "aws:MultiFactorAuthPresent": "true"
+    }
   }
 }
 ```
@@ -976,16 +1222,34 @@ Mental model:
 ```text
 Allow Action
      +
-Condition must match
+Condition Matches
      ↓
 Access
 ```
 
+> [!NOTE]
+> 🧠 **Memory**
+>
+> ```text
+> ACTION
+> → WHAT
+>
+> RESOURCE
+> → WHERE
+>
+> CONDITION
+> → UNDER WHAT CONDITIONS
+> ```
+
 ---
 
-# 🔑 IAM Roles for EC2
+# 20. IAM Roles for AWS Compute
 
-Applications running on EC2 should use IAM Roles instead of stored access keys.
+Applications running on AWS compute should generally use roles rather than stored long-term access keys.
+
+---
+
+## EC2
 
 ```text
 EC2
@@ -994,23 +1258,25 @@ Instance Profile / IAM Role
  ↓
 Temporary Credentials
  ↓
-AWS API
+AWS APIs
 ```
 
-> [!danger] Exam Trap
-> Application on EC2 needs access to S3:
+> [!CAUTION]
+> ⚠️ **Exam Trap**
 >
-> ❌ Store access keys in code
+> Application on EC2 needs S3 access:
 >
-> ❌ Store access keys in user data
+> ❌ Hard-code access keys
+>
+> ❌ Put access keys in user data
 >
 > ❌ Store access keys on disk
 >
-> ✅ **Attach IAM Role to EC2**
+> ✅ **Attach an IAM Role to EC2**
 
 ---
 
-# ⚡ IAM Roles for Lambda
+## Lambda
 
 Lambda functions use an **Execution Role**.
 
@@ -1031,16 +1297,52 @@ Execution Role
  ↓
 s3:GetObject
  ↓
-S3
+Amazon S3
 ```
 
-The role determines what the function can access.
+Think:
+
+> **Execution Role = What Lambda code can do**
 
 ---
 
-# 🎟️ iam:PassRole
+## ECS
 
-`iam:PassRole` allows a principal to pass an IAM Role to an AWS service.
+For ECS, distinguish:
+
+```text
+TASK ROLE
+→ Application permissions
+
+TASK EXECUTION ROLE
+→ ECS/Fargate startup operations
+```
+
+Example:
+
+```text
+Container Application
+       ↓
+Task Role
+       ↓
+DynamoDB
+```
+
+versus:
+
+```text
+ECS / Fargate
+      ↓
+Task Execution Role
+      ↓
+Pull ECR Image / Logs
+```
+
+---
+
+# 21. iam:PassRole
+
+`iam:PassRole` allows a principal to pass an IAM role to an AWS service.
 
 Example:
 
@@ -1051,7 +1353,7 @@ Creates Lambda
    ↓
 Passes Execution Role
    ↓
-Lambda assumes Role
+Lambda Uses Role
 ```
 
 The developer may need:
@@ -1060,210 +1362,554 @@ The developer may need:
 iam:PassRole
 ```
 
-> [!danger] Exam Trap
-> **PassRole ≠ AssumeRole**
+> [!IMPORTANT]
+> 🎯 **Don't Confuse**
 >
-> `AssumeRole`
-> → YOU become the role.
+> ```text
+> AssumeRole
+> → YOU become the role
 >
-> `PassRole`
-> → You give the role to an AWS service.
+> PassRole
+> → You give/assign the role to an AWS service
+> ```
+
+> [!CAUTION]
+> ⚠️ **Exam Trap**
+>
+> ```text
+> Developer creates Lambda
+> and assigns an execution role
+> ```
+>
+> → Look for **iam:PassRole**
 
 ---
 
-# 🆚 Authentication vs Authorization
+# 22. MFA
 
-| Concept | Question |
-|---|---|
-| Authentication | Who are you? |
-| Authorization | What can you do? |
+Multi-Factor Authentication adds another authentication factor.
+
+Strongly recommended for:
+
+- Root user
+- Administrators
+- Privileged identities
+
+Conceptually:
 
 ```text
-Login
- ↓
+Password
+   +
+MFA Device
+   ↓
 Authentication
- ↓
-Policies evaluated
- ↓
-Authorization
 ```
 
-## 🏢 Active Directory Federation — Directory Service
+STS workflows can also require MFA.
 
-### AD Connector
+> [!IMPORTANT]
+> 🧠 **SAA Memory**
+>
+> ```text
+> ROOT
+> → MFA
+>
+> PRIVILEGED ACCESS
+> → MFA
+> ```
 
-Used to connect AWS services to an **existing on-premises Active Directory**.
+---
+
+# 23. Directory Service Relationship
+
+IAM and AWS Directory Service solve different identity problems.
+
+At a high level:
+
+```text
+IAM
+→ AWS AUTHORIZATION / PERMISSIONS
+
+DIRECTORY SERVICE
+→ DIRECTORY / MICROSOFT AD INTEGRATION
+```
+
+One relevant option is **AD Connector**, which can connect AWS services with an existing on-premises Active Directory.
+
+Conceptually:
 
 ```text
 Existing Corporate AD
         ↓
-   AD Connector
+    AD Connector
         ↓
-     IAM Roles
-        ↓
-AWS Management Console
+    AWS Services
+```
+
+> [!WARNING]
+> Directory Service has multiple options and deserves its own note.
+>
+> Do not memorize:
+>
+> ```text
+> Directory Service = AD Connector
+> ```
+>
+> AD Connector is only one Directory Service option.
+
+See:
+
+```text
+aws_directory_service.md
+```
 
 ---
 
-# 🧠 High-Value Exam Traps
+# 24. Decision Map
 
-> [!danger] Trap 1 — Explicit Deny
-> An Allow and an explicit Deny both apply.
->
-> ✅ **DENY wins**
+```mermaid
+flowchart TD
+    A["IAM Requirement"] --> B{"What is needed?"}
 
----
-
-> [!danger] Trap 2 — Permissions Boundary
-> Need to prevent developers from ever exceeding a certain permission level.
->
-> ✅ **Permissions Boundary**
-
----
-
-> [!danger] Trap 3 — Cross-Account
-> Account A needs temporary access to resources in Account B.
->
-> ✅ **IAM Role + STS AssumeRole**
+    B -->|"AWS Permissions"| C["IAM Policy"]
+    B -->|"Temporary Identity"| D["IAM Role"]
+    B -->|"Temporary Credentials"| E["AWS STS"]
+    B -->|"Cross-Account Access"| F["STS AssumeRole"]
+    B -->|"Maximum User / Role Permissions"| G["Permissions Boundary"]
+    B -->|"Account / OU Guardrail"| H["SCP"]
+    B -->|"Workforce Multi-Account Access"| I["IAM Identity Center"]
+    B -->|"Find External Resource Access"| J["IAM Access Analyzer"]
+    B -->|"Assign Role to AWS Service"| K["iam:PassRole"]
+    B -->|"Corporate Federation"| L["SAML / External IdP"]
+```
 
 ---
 
-> [!danger] Trap 4 — Compute Credentials
-> EC2/Lambda needs AWS API access.
+# 25. High-Value Exam Traps
+
+> [!CAUTION]
+> ⚠️ **Trap 1 — Explicit Deny**
 >
-> ✅ **IAM Role**
+> ```text
+> Allow
+> +
+> Explicit Deny
+> =
+> DENY
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 2 — Permissions Boundary**
+>
+> ```text
+> Boundary
+> ≠ Grant Permissions
+>
+> Boundary
+> = Maximum Permissions
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 3 — SCP**
+>
+> ```text
+> SCP
+> ≠ Grant Permissions
+>
+> SCP
+> = Account / OU Permission Guardrail
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 4 — Cross-Account**
+>
+> ```text
+> Account A
+> needs temporary access
+> to Account B
+> ```
+>
+> → **IAM Role + STS AssumeRole**
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 5 — Compute Credentials**
+>
+> ```text
+> EC2 / Lambda / ECS
+> needs AWS API access
+> ```
+>
+> → **IAM Role**
 >
 > ❌ Hard-coded access keys
 
 ---
 
-> [!danger] Trap 5 — Workforce Access
-> Hundreds of employees need access to multiple AWS accounts.
+> [!CAUTION]
+> ⚠️ **Trap 6 — Workforce**
 >
-> ✅ **IAM Identity Center**
-
----
-
-> [!danger] Trap 6 — External Access
-> Need to discover S3/KMS/etc. resources shared externally.
+> ```text
+> Hundreds of employees
+> +
+> Multiple AWS accounts
+> ```
 >
-> ✅ **IAM Access Analyzer**
+> → **IAM Identity Center**
 
 ---
 
-> [!danger] Trap 7 — Who Can Assume Role?
-> Need to control which principal can assume a role.
+> [!CAUTION]
+> ⚠️ **Trap 7 — External Access**
 >
-> ✅ **Trust Policy**
-
----
-
-> [!danger] Trap 8 — What Can Role Do?
-> Need to control actions after the role is assumed.
+> ```text
+> Find resources accessible
+> outside trusted boundaries
+> ```
 >
-> ✅ **Permissions Policy**
+> → **IAM Access Analyzer**
 
 ---
 
-> [!danger] Trap 9 — Give Role to AWS Service
-> Developer creates Lambda and assigns an execution role.
+> [!CAUTION]
+> ⚠️ **Trap 8 — Role Trust**
 >
-> ✅ **iam:PassRole**
-
----
-
-> [!danger] Trap 10 — MFA for Programmatic Access
-> Need temporary credentials protected by MFA.
+> ```text
+> WHO can assume the role?
+> → Trust Policy
 >
-> ✅ **STS GetSessionToken**
+> WHAT can the role do?
+> → Permissions Policy
+> ```
 
 ---
 
-# 🆚 Quick Comparisons
-
-| Requirement | Solution |
-|---|---|
-| Individual AWS identity | IAM User |
-| Organize IAM users | IAM Group |
-| Temporary permissions | IAM Role |
-| Temporary credentials | STS |
-| Cross-account access | AssumeRole |
-| Define who assumes role | Trust Policy |
-| Define what role can do | Permissions Policy |
-| Maximum permissions for user/role | Permissions Boundary |
-| Maximum permissions for AWS account/OU | SCP |
-| Workforce multi-account access | IAM Identity Center |
-| Find unintended external access | IAM Access Analyzer |
-| Pass role to AWS service | iam:PassRole |
-| MFA temporary API credentials | GetSessionToken |
+> [!CAUTION]
+> ⚠️ **Trap 9 — PassRole**
+>
+> ```text
+> YOU become role
+> → AssumeRole
+>
+> AWS SERVICE receives role
+> → PassRole
+> ```
 
 ---
 
-# ⚡ IAM in 30 Seconds
+> [!CAUTION]
+> ⚠️ **Trap 10 — IAM User**
+>
+> ```text
+> New IAM User
+> → NO PERMISSIONS
+> ```
+>
+> Permissions must be explicitly granted.
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 11 — Resource Policy**
+>
+> ```text
+> Identity Policy
+> → What can YOU do?
+>
+> Resource Policy
+> → Who can access ME?
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 12 — Federation**
+>
+> Existing corporate identities generally do not require creating permanent IAM users for every employee.
+
+---
+
+# 26. Scenario Check
+
+## Scenario 1 — EC2 Needs S3
+
+> An application running on EC2 needs to read objects from S3 securely.
 
 ```text
-IAM
-│
-├── 👤 User
-│   └── Long-term identity
-│
-├── 👥 Group
-│   └── Collection of users
-│
-├── 🎭 Role
-│   └── Temporary assumed identity
-│
-├── 📜 Policies
-│   ├── Identity-Based → what identity can do
-│   └── Resource-Based → who can access resource
-│
-├── 🚧 Permissions Boundary
-│   └── Maximum identity permissions
-│
-├── ⚖️ Evaluation
-│   ├── Explicit Deny → DENY
-│   ├── Explicit Allow → ALLOW
-│   └── No Allow → DENY
-│
-├── 🔑 STS
-│   └── Temporary credentials
-│
-├── 🤝 AssumeRole
-│   └── Cross-account / temporary access
-│
-├── 🏢 Identity Center
-│   └── Workforce + multi-account access
-│
-└── 🔎 Access Analyzer
-    └── External access + policy validation
+EC2
+ ↓
+IAM Role
+ ↓
+s3:GetObject
+```
+
+Do not store access keys in the application.
+
+---
+
+## Scenario 2 — Cross-Account
+
+> A developer in Account A temporarily needs access to resources in Account B.
+
+```text
+Account A Principal
+       ↓
+STS AssumeRole
+       ↓
+Role in Account B
+       ↓
+Temporary Credentials
 ```
 
 ---
 
-> [!summary] SAA Memory Trick
-> **WHO are you?**
-> → 👤 User / 🎭 Role
+## Scenario 3 — Permission Ceiling
+
+> Developers can create IAM roles but must never grant them permissions beyond an approved maximum.
+
+```text
+Permissions Boundary
+```
+
+The boundary defines the maximum available permissions for those identities.
+
+---
+
+## Scenario 4 — Organization Guardrail
+
+> Security administrators need to prevent accounts in an OU from using certain AWS permissions even if local administrators attach permissive IAM policies.
+
+```text
+AWS Organizations
+      ↓
+SCP
+```
+
+---
+
+## Scenario 5 — Corporate Employees
+
+> Hundreds of employees need centralized access to multiple AWS accounts.
+
+```text
+Employees
+    ↓
+IAM Identity Center
+    ↓
+Multiple AWS Accounts
+```
+
+---
+
+## Scenario 6 — Existing Corporate Federation
+
+> Employees need AWS access using identities from an existing corporate identity provider.
+
+```text
+Corporate Identity
+       ↓
+Federation
+       ↓
+IAM Role
+       ↓
+Temporary Credentials
+```
+
+For SAML-based corporate federation:
+
+```text
+SAML
++
+STS
++
+IAM Role
+```
+
+---
+
+## Scenario 7 — External Resource Access
+
+> Security needs to identify AWS resources that may be accessible by an external account or public principal.
+
+```text
+IAM Access Analyzer
+```
+
+---
+
+## Scenario 8 — Developer Creates Lambda
+
+> A developer has permission to create Lambda functions and needs to assign an existing execution role to the function.
+
+```text
+Developer
+ ↓
+iam:PassRole
+ ↓
+Lambda Execution Role
+```
+
+---
+
+## Scenario 9 — Who Can Assume Role?
+
+> A role already has `s3:GetObject`, but a principal cannot assume it.
+
+Check:
+
+```text
+Trust Policy
+```
+
+S3 permissions define what the role can do after assumption, not who can assume it.
+
+---
+
+# 27. IAM in 30 Seconds
+
+```mermaid
+flowchart TD
+    Q["IAM Question"]
+
+    Q --> A["Long-Term IAM Identity → User"]
+    Q --> B["Temporary Identity → Role"]
+    Q --> C["Temporary Credentials → STS"]
+    Q --> D["Cross-Account → AssumeRole"]
+    Q --> E["Identity Maximum → Boundary"]
+    Q --> F["Account / OU Maximum → SCP"]
+    Q --> G["Workforce → Identity Center"]
+    Q --> H["External Access Analysis → Access Analyzer"]
+    Q --> I["Give Role to Service → PassRole"]
+```
+
+> [!NOTE]
+> 🧠 **SAA Memory**
 >
-> **WHAT can you do?**
-> → 📜 IAM Policy
+> **IAM → WHO CAN DO WHAT**
 >
-> **WHO can assume the role?**
-> → 🤝 Trust Policy
+> **USER → LONG-TERM IAM IDENTITY**
 >
-> **WHAT is the maximum you can ever do?**
-> → 🚧 Permissions Boundary
+> **GROUP → ORGANIZE USERS**
 >
-> **Need temporary credentials?**
-> → 🔑 STS
+> **ROLE → TEMPORARY ASSUMED IDENTITY**
 >
-> **Need cross-account access?**
-> → 🎭 AssumeRole
+> **STS → TEMPORARY CREDENTIALS**
 >
-> **Need workforce access across many accounts?**
-> → 🏢 IAM Identity Center
+> **IDENTITY POLICY → WHAT CAN YOU DO?**
 >
-> **Need to find external resource access?**
-> → 🔎 IAM Access Analyzer
+> **RESOURCE POLICY → WHO CAN ACCESS ME?**
 >
-> **Allow + Explicit Deny?**
-> → ❌ DENY
+> **TRUST POLICY → WHO CAN ASSUME ROLE?**
+>
+> **PERMISSIONS POLICY → WHAT CAN ROLE DO?**
+>
+> **BOUNDARY → MAX FOR USER / ROLE**
+>
+> **SCP → MAX / GUARDRAIL FOR ACCOUNT / OU**
+>
+> **IDENTITY CENTER → WORKFORCE + MULTI-ACCOUNT**
+>
+> **ACCESS ANALYZER → EXTERNAL ACCESS**
+>
+> **ASSUMEROLE → YOU BECOME ROLE**
+>
+> **PASSROLE → GIVE ROLE TO AWS SERVICE**
+>
+> **EXPLICIT DENY → WINS**
+>
+> ---
+>
+> Fastest distinctions:
+>
+> ```text
+> TEMPORARY CREDENTIALS?
+> → STS
+>
+> CROSS-ACCOUNT?
+> → AssumeRole
+>
+> WHO CAN ASSUME ROLE?
+> → Trust Policy
+>
+> WHAT CAN ROLE DO?
+> → Permissions Policy
+>
+> MAX FOR USER / ROLE?
+> → Permissions Boundary
+>
+> MAX / GUARDRAIL FOR ACCOUNT / OU?
+> → SCP
+>
+> WORKFORCE ACROSS ACCOUNTS?
+> → Identity Center
+>
+> EXTERNAL ACCESS?
+> → Access Analyzer
+>
+> ASSIGN ROLE TO AWS SERVICE?
+> → iam:PassRole
+> ```
+
+---
+
+# 🔗 Related Notes
+
+## Security
+
+- [AWS Directory Service](aws_directory_service.md)
+- [AWS RAM](aws_ram.md)
+- [AWS Artifact](aws_artifact.md)
+
+## Compute
+
+- [Amazon EC2](../Compute/aws_ec2.md)
+- [AWS Lambda](../Compute/aws_lambda.md)
+- [Containers](../Compute/aws_containers.md)
+
+---
+
+# 📚 Study Order
+
+1. User vs Group vs Role
+2. Identity-Based vs Resource-Based Policies
+3. Policy Evaluation + Explicit Deny
+4. Permissions Boundary
+5. SCP
+6. STS + AssumeRole
+7. Trust Policy vs Permissions Policy
+8. Cross-Account Access
+9. Federation
+10. IAM Identity Center + Permission Sets
+11. iam:PassRole
+12. IAM Access Analyzer
+13. ABAC
+14. Directory Service Relationship
+15. Exam Traps
+
+---
+
+# 📚 Sources
+
+- AWS IAM — Identities
+- AWS IAM — Policies and Permissions
+- AWS IAM — Policy Evaluation Logic
+- AWS IAM — Permissions Boundaries
+- AWS Organizations — Service Control Policies
+- AWS STS — Temporary Security Credentials
+- AWS IAM — Roles and Trust Policies
+- AWS IAM Identity Center
+- AWS IAM Access Analyzer
+- AWS IAM — Attribute-Based Access Control
+- AWS IAM — iam:PassRole
+
+---
+
+**Reviewed:** 2026-09-24  
+**Focus:** SAA-C03 authentication, authorization, roles, policies, STS, federation and multi-account access.

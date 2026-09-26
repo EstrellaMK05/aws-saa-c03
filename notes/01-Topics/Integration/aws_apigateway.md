@@ -1,6 +1,34 @@
-# 🚪 Amazon API Gateway
+# Amazon API Gateway — Managed Front Door for APIs
 
-> [!summary] Mental Model
+## 📑 Table of Contents
+
+1. [Mental Model](#1-mental-model)
+2. [API Types](#2-api-types)
+3. [Integrations](#3-integrations)
+4. [API Gateway + Lambda](#4-api-gateway--lambda)
+5. [Authentication and Authorization](#5-authentication-and-authorization)
+6. [Throttling](#6-throttling)
+7. [API Keys and Usage Plans](#7-api-keys-and-usage-plans)
+8. [Caching](#8-caching)
+9. [Stages and Deployments](#9-stages-and-deployments)
+10. [Canary Deployments](#10-canary-deployments)
+11. [Endpoint Types](#11-endpoint-types)
+12. [CORS](#12-cors)
+13. [Request and Response Transformation](#13-request-and-response-transformation)
+14. [API Gateway + WAF](#14-api-gateway--waf)
+15. [API Gateway vs Other Services](#15-api-gateway-vs-other-services)
+16. [API Gateway Decision Map](#16-api-gateway-decision-map)
+17. [High-Value Exam Traps](#17-high-value-exam-traps)
+18. [Scenario Check](#18-scenario-check)
+19. [API Gateway in 30 Seconds](#19-api-gateway-in-30-seconds)
+
+---
+
+# 1. Mental Model
+
+> [!TIP]
+> 🧠 **Mental Model**
+>
 > **API Gateway = Managed Front Door for APIs**
 >
 > ```text
@@ -14,50 +42,85 @@
 > └── AWS Service
 > ```
 
----
-
-# 🎯 Core Purpose
-
 Amazon API Gateway is a managed service for creating, publishing, securing, monitoring, and managing APIs.
 
-Common architecture:
+A very common serverless architecture:
 
-```text
-Web / Mobile Client
-        ↓
-   API Gateway
-        ↓
-      Lambda
-        ↓
-   DynamoDB / RDS
+```mermaid
+flowchart LR
+    A["Web / Mobile Client"] --> B["API Gateway"]
+    B --> C["Lambda"]
+    C --> D["DynamoDB"]
 ```
 
-> [!tip] Exam Pattern
-> **Serverless API**
-> +
-> **No servers to manage**
+API Gateway commonly handles concerns such as:
+
+- API routing
+- Authentication and authorization
+- Throttling
+- Caching
+- API lifecycle and deployments
+- Monitoring
+- Request/response processing
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
 >
-> → ✅ API Gateway + Lambda
+> ```text
+> Need to expose/manage an API?
+> → API Gateway
+>
+> API + Serverless Backend?
+> → API Gateway + Lambda
+> ```
 
 ---
 
-# 🔌 API Types
+# 2. API Types
+
+API Gateway provides three important API types:
+
+| API Type          | Think                            |
+| ----------------- | -------------------------------- |
+| **REST API**      | Full API management features     |
+| **HTTP API**      | Simpler, lower-cost HTTP APIs    |
+| **WebSocket API** | Persistent two-way communication |
+
+---
 
 ## REST API
 
 Think:
 
-- Full API Gateway feature set
 - RESTful applications
-- API keys / usage plans
+- API keys
+- Usage plans
 - Caching
 - Request/response transformations
+- Advanced API management requirements
+
+Example:
 
 ```text
-GET /users
-POST /orders
+GET    /users
+POST   /orders
 DELETE /items/123
 ```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> Need features such as:
+>
+> ```text
+> API Cache
+> +
+> API Keys / Usage Plans
+> +
+> Advanced Request Transformation
+> ```
+>
+> → Think **REST API**
 
 ---
 
@@ -65,27 +128,43 @@ DELETE /items/123
 
 Think:
 
-- Simpler APIs
+- Simpler HTTP APIs
 - Lower cost
 - Lower latency
-- Commonly Lambda / HTTP backends
+- Lambda or HTTP backends
+- Fewer API management features than REST APIs
 
-> [!tip]
-> Simple, cost-effective HTTP API
+```text
+Client
+  ↓
+HTTP API
+  ↓
+Lambda / HTTP Backend
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> → Think **HTTP API**
+> ```text
+> Simple HTTP API
+> +
+> Cost-effective
+> +
+> No advanced REST API features required
+> ```
+>
+> → **HTTP API**
 
 ---
 
 ## WebSocket API
 
-Used for persistent, two-way communication.
+Used for persistent, bidirectional communication.
 
-```text
-Client ←────────→ API Gateway
-                   WebSocket
-                      ↓
-                    Lambda
+```mermaid
+flowchart LR
+    A["Client"] <-->|"Persistent Connection"| B["API Gateway WebSocket"]
+    B --> C["Backend / Lambda"]
 ```
 
 Common use cases:
@@ -93,26 +172,66 @@ Common use cases:
 - Chat applications
 - Real-time dashboards
 - Live notifications
+- Interactive applications
 
-> [!tip] Exam Pattern
+> [!TIP]
+> 💡 **Exam Pattern**
+>
 > **Real-time + two-way communication**
 >
-> → ✅ WebSocket API
+> → **WebSocket API**
 
 ---
 
-# ⚡ API Gateway + Lambda
+# 3. Integrations
 
-One of the most important SAA architectures:
+API Gateway sits between the client and backend integration.
+
+```mermaid
+flowchart LR
+    A["Client"] --> B["API Gateway"]
+
+    B --> C["Lambda"]
+    B --> D["HTTP Backend"]
+    B --> E["AWS Service"]
+```
+
+The important mental model is:
 
 ```text
-Users
-  ↓
+Client
+   ↓
 API Gateway
-  ↓
-Lambda
-  ↓
-Database
+   ↓
+Integration
+   ↓
+Backend
+```
+
+API Gateway does not require Lambda.
+
+> [!CAUTION]
+> ⚠️ **Exam Trap**
+>
+> ```text
+> API Gateway
+> ≠
+> Lambda-only service
+> ```
+
+Lambda is simply one of its most common integrations.
+
+---
+
+# 4. API Gateway + Lambda
+
+One of the highest-value SAA architectures:
+
+```mermaid
+flowchart LR
+    A["Users"] --> B["API Gateway"]
+    B --> C["Lambda"]
+    C --> D["DynamoDB / RDS"]
 ```
 
 Benefits:
@@ -120,186 +239,302 @@ Benefits:
 - Serverless
 - Automatic scaling
 - No EC2 management
-- Good for unpredictable traffic
+- Good fit for unpredictable traffic
 
-> [!tip] Exam Pattern
-> **API + sudden traffic bursts**
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> → API Gateway + Lambda
+> ```text
+> API
+> +
+> Sudden Traffic Bursts
+> +
+> No Servers to Manage
+> ```
+>
+> → **API Gateway + Lambda**
+
+See [AWS Lambda](../Compute/aws_lambda.md).
 
 ---
 
-# 🔐 Authentication & Authorization
+# 5. Authentication and Authorization
 
-API Gateway can protect APIs using mechanisms such as:
+Do not treat every API security mechanism as interchangeable.
 
-- IAM authorization
-- Amazon Cognito
-- Lambda Authorizers
+For SAA, remember:
 
-### IAM
+```text
+AWS Identity
+→ IAM
+
+Application Users
+→ Cognito
+
+Custom Authorization Logic
+→ Lambda Authorizer
+```
+
+---
+
+## IAM Authorization
 
 Think:
 
 **AWS identities**
 
-```text
-IAM Principal
-     ↓
-SigV4 Request
-     ↓
-API Gateway
+Requests can be signed using AWS Signature Version 4.
+
+```mermaid
+flowchart LR
+    A["IAM Principal"] --> B["SigV4 Request"]
+    B --> C["API Gateway"]
 ```
 
-### Cognito
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> AWS principals need controlled access to an API
+>
+> → **IAM Authorization**
+
+---
+
+## Amazon Cognito
 
 Think:
 
 **Application users**
 
-```text
-Mobile / Web User
-       ↓
-Amazon Cognito
-       ↓
-JWT / Token
-       ↓
-API Gateway
+```mermaid
+flowchart LR
+    A["Web / Mobile User"] --> B["Amazon Cognito"]
+    B --> C["Token"]
+    C --> D["API Gateway"]
 ```
 
-### Lambda Authorizer
+Useful when applications need user identity management.
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Web / Mobile Application
+> +
+> User Authentication
+> ```
+>
+> → **Amazon Cognito**
+
+---
+
+## Lambda Authorizer
 
 Think:
 
 **Custom authorization logic**
 
-```text
-Client Token
-     ↓
-API Gateway
-     ↓
-Lambda Authorizer
-     ↓
-Allow / Deny
+```mermaid
+flowchart LR
+    A["Client"] --> B["API Gateway"]
+    B --> C["Lambda Authorizer"]
+    C --> D{"Authorized?"}
+    D -->|"Yes"| E["Backend"]
+    D -->|"No"| F["Deny"]
 ```
 
-> [!summary] Memory
-> AWS identity → IAM
+Useful when authorization requires custom logic.
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
 >
-> App users → Cognito
+> ```text
+> AWS Identity
+> → IAM
 >
-> Custom authorization → Lambda Authorizer
+> App Users
+> → Cognito
+>
+> Custom Auth Logic
+> → Lambda Authorizer
+> ```
 
 ---
 
-# 🚦 Throttling
+# 6. Throttling
 
-API Gateway can throttle incoming requests.
+API Gateway can control incoming request rates.
 
-```text
-Too Many Requests
-       ↓
-API Gateway
-       ↓
-Throttle
-       ↓
-429 Too Many Requests
+```mermaid
+flowchart LR
+    A["Clients"] --> B["API Gateway"]
+    B --> C{"Request Limit"}
+    C -->|"Allowed"| D["Backend"]
+    C -->|"Exceeded"| E["429 Too Many Requests"]
 ```
 
-Two concepts:
+Two important concepts:
 
-**Rate**
-→ Sustained requests per second
+### Rate
 
-**Burst**
-→ Temporary spike in requests
+Sustained request rate.
 
-> [!tip] Exam Pattern
-> **Protect backend from too many API requests**
+```text
+Requests / second over time
+```
+
+### Burst
+
+Short-term request spike that can be absorbed.
+
+```text
+Normal traffic
+     ↓
+Sudden spike 📈
+     ↓
+Burst capacity
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> → ✅ API Gateway Throttling
+> **Protect backend from excessive API requests**
+>
+> → **API Gateway Throttling**
 
 ---
 
-# 🎟️ API Keys & Usage Plans
+# 7. API Keys and Usage Plans
 
-Usage plans can control how clients consume a REST API.
+For REST APIs, usage plans can control how clients consume the API.
 
-Can define:
+They can involve:
 
 - API keys
 - Throttling
 - Quotas
 
-```text
-Client
-  ↓
-API Key
-  ↓
-Usage Plan
-  ↓
-API Gateway
+```mermaid
+flowchart LR
+    A["Client"] --> B["API Key"]
+    B --> C["Usage Plan"]
+    C --> D["API Gateway"]
 ```
 
-> [!danger]
-> **API Keys are NOT an authentication/authorization mechanism.**
+Think:
+
+```text
+Identify API consumer
++
+Meter usage
++
+Apply quota
++
+Apply throttling
+        ↓
+API Key + Usage Plan
+```
+
+> [!CAUTION]
+> ⚠️ **API Keys are NOT Authentication**
 >
-> They are mainly used for:
+> API keys are primarily useful for:
 >
 > - Identifying clients
 > - Metering
 > - Usage plans
 > - Quotas
 > - Throttling
-
-Do not use an API key as the main security mechanism for sensitive APIs.
+>
+> Do not use an API key as the primary authorization mechanism for sensitive APIs.
 
 ---
 
-# ⚡ API Gateway Caching
+## Authentication vs API Key
 
-API Gateway REST APIs can cache backend responses.
+Do not confuse:
 
 ```text
-Client
-  ↓
-API Gateway
-  ↓
-Cache HIT ⚡
-  ↓
-Return Response
+WHO ARE YOU?
+→ IAM / Cognito / Authorizer
 
-Cache MISS
-  ↓
-Backend
+HOW MUCH CAN THIS CLIENT USE?
+→ API Key + Usage Plan
+```
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
+>
+> **API Key → CONSUMPTION**
+>
+> **IAM / Cognito / Authorizer → ACCESS CONTROL**
+
+---
+
+# 8. Caching
+
+REST APIs can cache backend responses.
+
+```mermaid
+flowchart TD
+    A["Client Request"] --> B["API Gateway"]
+    B --> C{"Cached?"}
+
+    C -->|"Yes"| D["Return Cached Response"]
+    C -->|"No"| E["Backend"]
+    E --> F["Store Response in Cache"]
+    F --> A
 ```
 
 Benefits:
 
 - Lower backend load
 - Lower latency
-- Fewer Lambda/backend calls
+- Fewer backend calls
+- Fewer Lambda invocations when applicable
 
-> [!tip] Exam Pattern
-> **Same API GET requests repeatedly**
-> +
-> **Reduce backend calls**
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> → ✅ API Gateway Cache
+> ```text
+> Repeated API Reads
+> +
+> Same Responses
+> +
+> Reduce Backend Load
+> ```
+>
+> → **API Gateway Cache**
 
-Default cache TTL:
+For REST API caching, remember the commonly tested values:
 
-**300 seconds**
+```text
+Default TTL
+→ 300 seconds
 
-Maximum:
+Maximum TTL
+→ 3600 seconds
+```
 
-**3600 seconds**
+> [!CAUTION]
+> ⚠️ **Don't Confuse**
+>
+> ```text
+> API Gateway Cache
+> → Cache API responses
+>
+> CloudFront
+> → Global edge caching / CDN
+>
+> ElastiCache
+> → Application/database data cache
+> ```
 
 ---
 
-# 🏗️ Stages
+# 9. Stages and Deployments
 
-Stages represent different API deployment environments.
+Stages represent deployed API environments.
 
 Examples:
 
@@ -309,301 +544,786 @@ Examples:
 /prod
 ```
 
-A stage points to an API deployment.
+Conceptually:
 
-Stage-specific configuration can include:
+```mermaid
+flowchart LR
+    A["API Configuration"] --> B["Deployment"]
+    B --> C["Stage"]
+    C --> D["/prod"]
+```
+
+Stage-specific configuration can include features such as:
 
 - Logging
 - Throttling
 - Caching
 - Stage variables
 
-> [!tip]
-> **Different API environments**
+> [!TIP]
+> 💡 **Exam Pattern**
 >
-> → API Gateway Stages
+> **Different API deployment environments**
+>
+> → **Stages**
 
 ---
 
-# 🐤 Canary Deployments
+# 10. Canary Deployments
 
-REST APIs can use canary releases.
+REST APIs can use canary releases to gradually introduce a new deployment.
 
-```text
-Users
-  ↓
-API Gateway
-  ├── 90% → Current Version
-  └── 10% → New Version
+```mermaid
+flowchart TD
+    A["API Traffic"] --> B["API Gateway Stage"]
+
+    B -->|"90%"| C["Current Deployment"]
+    B -->|"10%"| D["Canary Deployment"]
 ```
 
-Useful for gradually testing a new API deployment.
+This allows a small percentage of traffic to test the new deployment before increasing exposure.
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Deploy New API Version
+> +
+> Small Percentage of Traffic
+> +
+> Gradual Testing
+> ```
+>
+> → **Canary Release**
 
 ---
 
-# 🌐 Endpoint Types
+## Canary vs Blue/Green
 
-For REST APIs, know these concepts:
+Conceptually:
 
-### Edge-Optimized
+```text
+Canary
+→ Gradually shift a percentage of traffic
+
+Blue/Green
+→ Separate old and new environments
+```
+
+Do not automatically interpret every controlled deployment as Blue/Green.
+
+---
+
+# 11. Endpoint Types
+
+For REST APIs, three important endpoint types are:
+
+```text
+Edge-Optimized
+Regional
+Private
+```
+
+---
+
+## Edge-Optimized
 
 Think:
 
 **Geographically distributed clients**
 
-Uses the AWS edge network to improve access for global clients.
-
-### Regional
-
-Think:
-
-**Clients primarily in the same Region**
-
-### Private
-
-Think:
-
-**API accessible privately from a VPC**
-
 ```text
-VPC
- ↓
-Interface VPC Endpoint
- ↓
-Private API Gateway
-```
-
-> [!tip] Exam Pattern
-> Internal/private API that must not be publicly accessible
->
-> → **Private API**
-
----
-
-# 🛡️ API Gateway + WAF
-
-AWS WAF can protect API Gateway REST APIs against malicious web requests.
-
-```text
-Internet
-   ↓
-AWS WAF
-   ↓
+Global Clients
+      ↓
+AWS Edge Network
+      ↓
 API Gateway
-   ↓
-Lambda
 ```
 
-Think:
-
-- SQL injection
-- XSS
-- HTTP request filtering
-- Rate-based rules
-
-> [!danger] Don't Confuse
-> **API Gateway Throttling**
-> → Control API request rate
->
-> **WAF**
-> → Inspect/filter malicious HTTP requests
->
-> **Shield**
-> → DDoS protection
+Useful when clients are geographically distributed.
 
 ---
 
-# 🌍 CORS
+## Regional
 
-CORS controls whether browser applications from another origin can call the API.
+Think:
+
+**API deployed in one AWS Region**
 
 ```text
-frontend.com
-     ↓
-API
-api.example.com
+Clients
+   ↓
+Regional API Gateway Endpoint
 ```
 
-> [!tip] Exam Pattern
-> **Browser frontend hosted on one domain cannot call API on another domain**
+A Regional API can also be combined with CloudFront when you want more control over the CDN configuration.
+
+---
+
+## Private
+
+Think:
+
+**Private API access from a VPC**
+
+```mermaid
+flowchart LR
+    A["VPC"] --> B["Interface VPC Endpoint"]
+    B --> C["Private API Gateway"]
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Internal API
+> +
+> Must not be publicly accessible
+> +
+> VPC
+> ```
+>
+> → **Private REST API + Interface VPC Endpoint**
+
+---
+
+# 12. CORS
+
+CORS controls whether browser-based applications from one origin can access resources from another origin.
+
+Example:
+
+```text
+Frontend:
+https://app.example.com
+
+API:
+https://api.example.com
+```
+
+These are different origins.
+
+```mermaid
+flowchart LR
+    A["Browser"] --> B["Frontend Origin"]
+    B --> C["API Gateway"]
+    C --> D["Backend"]
+```
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> Browser frontend works with same-origin resources but fails when calling an API from another origin.
 >
 > → Check **CORS**
 
 ---
 
-# 🔄 Request / Response Transformation
+## CORS Is a Browser Concept
 
-REST APIs can transform requests and responses before passing them between clients and integrations.
+> [!CAUTION]
+> ⚠️ **Exam Trap**
+>
+> CORS is not an API authentication mechanism.
+>
+> ```text
+> CORS
+> → Browser cross-origin access rules
+>
+> Authentication
+> → IAM / Cognito / Authorizer
+> ```
 
-```text
-Client Request
-      ↓
-API Gateway
-Transform
-      ↓
-Backend
+---
+
+# 13. Request and Response Transformation
+
+REST APIs can transform requests and responses between clients and integrations.
+
+```mermaid
+flowchart LR
+    A["Client Format"] --> B["API Gateway"]
+    B --> C["Transform"]
+    C --> D["Backend Format"]
 ```
 
-Useful when the client and backend expect different formats.
+Useful when:
+
+```text
+Client Format
+≠
+Backend Format
+```
+
+For example, the client and backend might expect different request or response structures.
 
 ---
 
-# 🆚 API Gateway vs ALB
+# 14. API Gateway + WAF
 
-Both can route HTTP traffic, but think differently.
+AWS WAF can protect supported API Gateway endpoints from malicious HTTP requests.
 
-| Requirement | Think |
-|---|---|
-| Managed API | API Gateway |
-| Serverless API + Lambda | API Gateway |
-| API keys / usage plans | API Gateway |
-| API caching | API Gateway |
-| WebSocket API | API Gateway |
-| Route traffic to EC2/ECS | ALB |
-| Host-based/path-based load balancing | ALB |
+```mermaid
+flowchart LR
+    A["Internet"] --> B["AWS WAF"]
+    B --> C["API Gateway"]
+    C --> D["Backend"]
+```
 
-> [!tip]
-> **"Create/manage an API"**
-> → API Gateway
+Think:
+
+- SQL injection patterns
+- XSS patterns
+- HTTP request filtering
+- Rate-based filtering rules
+
+See [AWS WAF](../Security/aws_waf.md).
+
+---
+
+## WAF vs Throttling vs Shield
+
+| Requirement                    | Service / Feature          |
+| ------------------------------ | -------------------------- |
+| Control API request rate       | **API Gateway Throttling** |
+| Filter malicious HTTP requests | **AWS WAF**                |
+| DDoS protection                | **AWS Shield**             |
+
+> [!IMPORTANT]
+> 🎯 **SAA Memory**
 >
-> **"Load balance EC2/ECS"**
-> → ALB
+> ```text
+> TOO MANY API REQUESTS
+> → API Gateway Throttling
+>
+> MALICIOUS HTTP REQUEST
+> → WAF
+>
+> DDoS
+> → Shield
+> ```
 
 ---
 
-# 🆚 API Gateway vs CloudFront
+# 15. API Gateway vs Other Services
+
+## API Gateway vs ALB
+
+Both can handle HTTP traffic, but their primary mental models differ.
+
+| Requirement                                | Think                    |
+| ------------------------------------------ | ------------------------ |
+| Managed API                                | **API Gateway**          |
+| Serverless API + Lambda                    | **API Gateway**          |
+| API keys / usage plans                     | **API Gateway**          |
+| API caching                                | **API Gateway REST API** |
+| WebSocket API                              | **API Gateway**          |
+| Load balance EC2/ECS                       | **ALB**                  |
+| Host/path-based application load balancing | **ALB**                  |
+
+```text
+Create / Manage an API
+→ API Gateway
+
+Load Balance Applications
+→ ALB
+```
+
+See [Elastic Load Balancing](../Compute/aws_elb.md).
+
+---
+
+## API Gateway vs CloudFront
 
 ```text
 CloudFront
 → CDN
-→ Cache/distribute content globally
+→ Global edge delivery
+→ Cache content close to users
 
 API Gateway
 → API management
-→ Authentication
+→ Authorization
 → Throttling
 → API routing
 ```
 
-They can also be used together.
+They can also work together:
+
+```mermaid
+flowchart LR
+    A["Global Users"] --> B["CloudFront"]
+    B --> C["API Gateway"]
+    C --> D["Backend"]
+```
+
+See [Amazon CloudFront](../Networking/aws_cloudfront.md).
 
 ---
 
-# 🆚 API Gateway vs Lambda Function URL
+## API Gateway vs Lambda Function URL
 
 ```text
 Lambda Function URL
 → Simple HTTP endpoint directly to Lambda
 
 API Gateway
-→ Full API management
-→ Routes
-→ Authorization
-→ Throttling
-→ API lifecycle features
+→ Full API management layer
 ```
 
-> [!tip]
-> Simple Lambda HTTP endpoint
+Think:
+
+| Requirement                           | Think                   |
+| ------------------------------------- | ----------------------- |
+| Simple Lambda HTTP endpoint           | **Lambda Function URL** |
+| Routing / API management              | **API Gateway**         |
+| API lifecycle features                | **API Gateway**         |
+| Advanced authorization requirements   | **API Gateway**         |
+| Throttling / API consumption controls | **API Gateway**         |
+
+> [!TIP]
+> 💡 **Exam Pattern**
+>
+> ```text
+> Just expose Lambda over HTTP
 > → Function URL
 >
-> Full managed API
+> Build/manage an API
 > → API Gateway
+> ```
 
 ---
 
-# ⚠️ High-Value Exam Traps
+# 16. API Gateway Decision Map
 
-> [!danger] Trap 1
-> Sudden API traffic bursts + serverless
->
-> → API Gateway + Lambda
+```mermaid
+flowchart TD
+    A["API Requirement"] --> B{"What is needed?"}
 
-> [!danger] Trap 2
-> Protect backend from excessive requests
->
-> → API Gateway throttling
+    B -->|"Full API Features"| C["REST API"]
+    B -->|"Simple / Cost-Effective HTTP API"| D["HTTP API"]
+    B -->|"Real-Time Two-Way"| E["WebSocket API"]
 
-> [!danger] Trap 3
-> Repeated GET requests are overloading backend
->
-> → API Gateway caching
+    C --> F{"Security Requirement?"}
+    D --> F
 
-> [!danger] Trap 4
-> Real-time bidirectional application
->
-> → WebSocket API
+    F -->|"AWS Identity"| G["IAM"]
+    F -->|"Application Users"| H["Cognito"]
+    F -->|"Custom Authorization"| I["Lambda Authorizer"]
 
-> [!danger] Trap 5
-> Authenticate application users
->
-> → Cognito
->
-> Not API Keys.
+    C --> J{"Traffic Requirement?"}
+    D --> J
 
-> [!danger] Trap 6
-> Custom authentication logic
->
-> → Lambda Authorizer
+    J -->|"Protect Backend from Excess Requests"| K["Throttling"]
+    J -->|"Repeated REST Responses"| L["API Gateway Cache"]
 
-> [!danger] Trap 7
-> API accessible only privately from VPC
->
-> → Private API + VPC Endpoint
+    C --> M{"Network Requirement?"}
 
-> [!danger] Trap 8
-> SQL injection / XSS against API
->
-> → AWS WAF
+    M -->|"Global Clients"| N["Edge-Optimized"]
+    M -->|"Regional"| O["Regional Endpoint"]
+    M -->|"Private VPC Access"| P["Private API + Interface Endpoint"]
 
----
-
-# 🧠 API Gateway in 20 Seconds
-
-```text
-Managed API
-→ API Gateway
-
-Serverless API
-→ API Gateway + Lambda
-
-App Users
-→ Cognito
-
-Custom Auth
-→ Lambda Authorizer
-
-Control Request Rate
-→ Throttling
-
-Repeated GET Requests
-→ Cache
-
-Client Usage Limits
-→ Usage Plans
-
-Real-Time Two-Way
-→ WebSocket
-
-Private VPC API
-→ Private API
-
-Malicious HTTP Requests
-→ WAF
-
-Browser Cross-Origin Error
-→ CORS
+    C --> Q{"Security Filtering?"}
+    Q -->|"Malicious HTTP Requests"| R["AWS WAF"]
 ```
 
-> [!summary] SAA Memory
-> **API → API Gateway**
+---
+
+# 17. High-Value Exam Traps
+
+> [!CAUTION]
+> ⚠️ **Trap 1 — API Keys**
 >
-> **API + SERVERLESS → Lambda**
+> ```text
+> API Key
+> ≠
+> Authentication
+> ```
 >
-> **TOO MANY REQUESTS → Throttling**
+> Think consumption, metering, quotas and usage plans.
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 2 — Traffic Bursts**
 >
-> **REPEATED READS → Cache**
+> ```text
+> Serverless API
+> +
+> Sudden / Unpredictable Traffic
+> → API Gateway + Lambda
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 3 — Excessive Requests**
 >
-> **REAL-TIME TWO-WAY → WebSocket**
+> ```text
+> Protect Backend from API Traffic
+> → API Gateway Throttling
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 4 — Repeated Reads**
 >
-> **APP AUTH → Cognito**
+> ```text
+> Repeated REST API Responses
+> +
+> Reduce Backend Calls
+> → API Gateway Cache
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 5 — Bidirectional**
+>
+> ```text
+> Real-Time
+> +
+> Persistent
+> +
+> Two-Way
+> → WebSocket API
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 6 — Application Users**
+>
+> ```text
+> App User Authentication
+> → Cognito
+>
+> NOT
+> → API Key
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 7 — Custom Authorization**
+>
+> ```text
+> Custom Auth Logic
+> → Lambda Authorizer
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 8 — Private API**
+>
+> ```text
+> Private API
+> +
+> VPC
+> → Interface VPC Endpoint
+> ```
+
+Do not confuse this with an S3/DynamoDB Gateway Endpoint.
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 9 — WAF**
+>
+> ```text
+> SQL Injection / XSS
+> → WAF
+>
+> Too Many API Requests
+> → API Gateway Throttling
+>
+> DDoS
+> → Shield
+> ```
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 10 — CORS**
+>
+> ```text
+> Browser
+> +
+> Different Origin
+> +
+> Request Blocked
+> → CORS
+> ```
+>
+> CORS is not authentication.
+
+---
+
+> [!CAUTION]
+> ⚠️ **Trap 11 — HTTP API vs REST API**
+>
+> Do not automatically choose REST API for every HTTP-based API.
+>
+> ```text
+> Simple + Cost-Effective
+> → HTTP API
+>
+> Advanced API Management Features
+> → REST API
+> ```
+
+---
+
+# 18. Scenario Check
+
+## Scenario 1 — Sudden API Traffic
+
+> An application receives unpredictable bursts of API traffic and the company does not want to manage servers.
+
+```text
+API
++
+Unpredictable Traffic
++
+Serverless
+        ↓
+API Gateway + Lambda
+```
+
+---
+
+## Scenario 2 — Protect Backend
+
+> A backend service is overwhelmed because clients send too many API requests.
+
+```text
+Too Many Requests
+        ↓
+API Gateway Throttling
+```
+
+---
+
+## Scenario 3 — Repeated GET Requests
+
+> Thousands of users repeatedly request the same data and the backend is overloaded.
+
+```text
+Repeated Reads
++
+Reduce Backend Calls
+        ↓
+API Gateway Cache
+```
+
+---
+
+## Scenario 4 — Application Users
+
+> A mobile application needs user sign-up, sign-in and controlled API access.
+
+```text
+Application Users
+        ↓
+Amazon Cognito
+        ↓
+API Gateway
+```
+
+---
+
+## Scenario 5 — API Consumer Quotas
+
+> Different API consumers should have different request quotas and usage limits.
+
+```text
+Client Consumption
++
+Quota / Throttling
+        ↓
+API Key + Usage Plan
+```
+
+Not API key authentication.
+
+---
+
+## Scenario 6 — Chat Application
+
+> An application requires persistent two-way communication between clients and the backend.
+
+```text
+Persistent
++
+Bidirectional
+        ↓
+WebSocket API
+```
+
+---
+
+## Scenario 7 — Private Internal API
+
+> An application inside a VPC needs an API that must not be publicly accessible.
+
+```text
+VPC
+ ↓
+Interface VPC Endpoint
+ ↓
+Private REST API
+```
+
+---
+
+## Scenario 8 — SQL Injection
+
+> An API must block requests containing common SQL injection patterns.
+
+```text
+Malicious HTTP Request
+        ↓
+AWS WAF
+```
+
+---
+
+## Scenario 9 — Browser Error
+
+> A frontend hosted on one origin cannot call an API hosted on another origin from the browser.
+
+```text
+Browser
++
+Different Origins
+        ↓
+CORS
+```
+
+---
+
+## Scenario 10 — Simple Lambda Endpoint
+
+> A Lambda function only needs a simple HTTP endpoint and full API management features are unnecessary.
+
+```text
+Simple HTTP Access
++
+Lambda
+        ↓
+Lambda Function URL
+```
+
+---
+
+# 19. API Gateway in 30 Seconds
+
+```mermaid
+flowchart TD
+    Q["API Question"]
+
+    Q --> A["Managed API → API Gateway"]
+    Q --> B["Serverless API → API Gateway + Lambda"]
+    Q --> C["Simple API → HTTP API"]
+    Q --> D["Advanced API Features → REST API"]
+    Q --> E["Two-Way Real-Time → WebSocket"]
+    Q --> F["AWS Identity → IAM"]
+    Q --> G["App Users → Cognito"]
+    Q --> H["Custom Auth → Lambda Authorizer"]
+    Q --> I["Too Many Requests → Throttling"]
+    Q --> J["Repeated Responses → Cache"]
+    Q --> K["Private VPC API → Private API"]
+    Q --> L["Malicious HTTP → WAF"]
+```
+
+> [!NOTE]
+> 🧠 **SAA Memory**
+>
+> **API → API GATEWAY**
+>
+> **SERVERLESS API → API GATEWAY + LAMBDA**
+>
+> **SIMPLE / COST-EFFECTIVE API → HTTP API**
+>
+> **ADVANCED API FEATURES → REST API**
+>
+> **REAL-TIME TWO-WAY → WEBSOCKET**
+>
+> **AWS IDENTITY → IAM**
+>
+> **APP USERS → COGNITO**
+>
+> **CUSTOM AUTH → LAMBDA AUTHORIZER**
+>
+> **API KEY → USAGE / QUOTAS, NOT AUTH**
+>
+> **TOO MANY REQUESTS → THROTTLING**
+>
+> **REPEATED RESPONSES → CACHE**
+>
+> **PRIVATE VPC API → PRIVATE API + INTERFACE ENDPOINT**
+>
+> **SQL INJECTION / XSS → WAF**
+>
+> **DDoS → SHIELD**
+>
+> **BROWSER CROSS-ORIGIN → CORS**
+
+---
+
+# 🔗 Related Notes
+
+## Compute
+
+- [AWS Lambda](../Compute/aws_lambda.md)
+- [Elastic Load Balancing](../Compute/aws_elb.md)
+
+## Networking
+
+- [Amazon CloudFront](../Networking/aws_cloudfront.md)
+- [VPC Endpoints](../Networking/aws_vpc_endpoints.md)
+
+## Security
+
+- [AWS IAM](../Security/aws_iam.md)
+- [AWS WAF](../Security/aws_waf.md)
+- [AWS Shield](../Security/aws_shield.md)
+
+## Database
+
+- [Amazon DynamoDB](../Database/aws_dynamodb.md)
+- [Amazon RDS](../Database/aws_rds.md)
+
+---
+
+# 📚 Study Order
+
+1. API Types
+2. API Gateway + Lambda
+3. Authentication and Authorization
+4. Throttling
+5. API Keys and Usage Plans
+6. Caching
+7. Endpoint Types
+8. WAF / CORS
+9. Stages and Canary Deployments
+10. Service Comparisons
+
+---
+
+# 📚 Sources
+
+- AWS API Gateway — API Types
+- AWS API Gateway — REST APIs
+- AWS API Gateway — HTTP APIs
+- AWS API Gateway — WebSocket APIs
+- AWS API Gateway — Authorization
+- AWS API Gateway — Caching
+- AWS API Gateway — Private APIs
+
+---
+
+**Reviewed:** 2026-09-23  
+**Focus:** SAA-C03 API architecture, security, traffic management and serverless integration.
