@@ -1,12 +1,3 @@
----
-aliases:
-  - AWS Lambda
-  - Lambda
-tags:
-  - aws/saa
-  - compute
----
-
 # AWS Lambda — Serverless Event-Driven Compute
 
 ## 📑 Table of Contents
